@@ -18,7 +18,7 @@
 
   <!-- Announcement Bar -->
   <div class="announce-bar" id="announce-bar">
-    🎉 AI-powered photo curation — works 100% offline in your browser!
+    🎉 AI-powered photo curation — now with cloud AI tagging for richer content analysis!
     <a href="#upload-section">Try it Free →</a>
   </div>
 
@@ -432,7 +432,7 @@
         <li><a href="#features-strip">Features</a></li>
       </ul>
       <p style="margin-top:24px;font-size:12px;opacity:0.5;">
-        © 2026 CB VibeSelect. All images are processed locally in your browser — nothing is uploaded to any server.
+        © 2026 CB VibeSelect. Quality analysis runs locally. AI tagging sends images to our secure cloud API for richer content tags.
       </p>
     </div>
   </footer>
@@ -525,6 +525,29 @@
         toast.style.transition = 'all 0.3s ease';
         setTimeout(function () { if (toast.parentElement) toast.remove(); }, 300);
       }, 4000);
+    }
+
+    // =========================================
+    // RAM TAGGER API
+    // =========================================
+    async function tagImageViaAPI(file) {
+      try {
+        var controller = new AbortController();
+        var timeout = setTimeout(function () { controller.abort(); }, 15000);
+        var formData = new FormData();
+        formData.append('file', file);
+        var resp = await fetch('https://suryachandra17-ram-tagger-api.hf.space/tag', {
+          method: 'POST',
+          body: formData,
+          signal: controller.signal
+        });
+        clearTimeout(timeout);
+        if (!resp.ok) throw new Error('API ' + resp.status);
+        return await resp.json();
+      } catch (e) {
+        console.warn('RAM Tagger API failed for', file.name, e);
+        return { tags_en: [], tags_zh: [] };
+      }
     }
 
     async function downloadAsZip(images, zipName) {
@@ -1123,9 +1146,28 @@
               tc.appendChild(el);
               tc.scrollTop = tc.scrollHeight;
 
-              var img = await loadImage(file);
-              var analysis = await analyzeImage(img);
-              state.results[gi] = Object.assign({ id: gi, file: file, name: file.name, size: file.size, thumbUrl: thumbUrl }, analysis);
+              // Run local analysis and cloud API tagging concurrently
+              var imgPromise = loadImage(file).then(function (img) { return analyzeImage(img); });
+              var apiPromise = tagImageViaAPI(file);
+              var results = await Promise.all([imgPromise, apiPromise]);
+              var analysis = results[0];
+              var apiResult = results[1];
+
+              // Filter out generic/noise tags that aren't useful for image content
+              var noiseTags = ['image', 'photo', 'photograph', 'picture', 'stock photo', 'stock', 'illustration', 'graphic', 'wallpaper', 'background', 'no person', 'horizontal', 'vertical', 'square', 'color', 'colour', 'indoors', 'outdoors', 'daytime', 'one', 'two', 'many', 'several', 'some'];
+
+              // Merge API tags into analysis tags (deduplicated, noise-filtered)
+              var apiTags = (apiResult.tags_en || []).map(function (t) { return t.trim().toLowerCase(); }).filter(function (t) {
+                return t.length > 0 && !noiseTags.includes(t);
+              });
+              var existingTagsLower = (analysis.tags || []).map(function (t) { return t.toLowerCase(); });
+              apiTags.forEach(function (t) {
+                if (!existingTagsLower.includes(t)) {
+                  analysis.tags.push(t);
+                }
+              });
+
+              state.results[gi] = Object.assign({ id: gi, file: file, name: file.name, size: file.size, thumbUrl: thumbUrl, apiTags: apiTags }, analysis);
 
               var tel = document.getElementById('pt-' + gi);
               if (tel) {
@@ -1140,7 +1182,7 @@
               else rejCount++;
             } catch (e) {
               console.warn('Failed:', file.name, e);
-              state.results[gi] = { id: gi, file: file, name: file.name, size: file.size, overallScore: 0, classification: 'rejected', metrics: {}, tags: ['error'], pHash: '', thumbUrl: '' };
+              state.results[gi] = { id: gi, file: file, name: file.name, size: file.size, overallScore: 0, classification: 'rejected', metrics: {}, tags: ['error'], apiTags: [], pHash: '', thumbUrl: '' };
               rejCount++;
             }
           })();
@@ -1290,23 +1332,51 @@
         card.className = 'photo-card' + (sel ? ' selected' : '');
         card.id = 'pc-' + res.id;
 
-        // Separate quality tags from object tags for styling
-        var qualityTags = ['blur', 'dupe', 'master', 'dark', 'bright', 'overexp', 'overexposed', 'backlit', 'cropped-subject', 'error', 'underexposed', 'low-contrast', 'high-contrast', 'desaturated', 'oversaturated', 'poor-composition'];
-        
-        var tagsHtml = (res.tags || []).map(function (t) { 
-          var isObj = !qualityTags.includes(t.toLowerCase());
-          return '<span class="photo-tag ' + (isObj ? 'ai-object' : t) + '">' + t + '</span>'; 
+        // Separate quality tags from content tags
+        var qualityTagNames = ['blur', 'dupe', 'master', 'dark', 'bright', 'overexp', 'overexposed', 'backlit', 'cropped-subject', 'error', 'underexposed', 'low-contrast', 'high-contrast', 'desaturated', 'oversaturated', 'poor-composition'];
+        var qualityIcons = { 'blur': '🔍', 'dark': '🌑', 'bright': '☀️', 'overexp': '☀️', 'overexposed': '☀️', 'underexposed': '🌑', 'backlit': '🌓', 'low-contrast': '◐', 'high-contrast': '◑', 'desaturated': '🎨', 'oversaturated': '🎨', 'cropped-subject': '✂️', 'poor-composition': '📐', 'dupe': '🔁', 'master': '👑', 'error': '⚠️' };
+
+        // Content tags: API tags + COCO-SSD objects (non-quality)
+        var contentTags = (res.apiTags || []).slice();
+        // Also add COCO-SSD object tags not already in API tags
+        (res.tags || []).forEach(function (t) {
+          var tLower = t.toLowerCase();
+          if (!qualityTagNames.includes(tLower) && !contentTags.includes(tLower)) {
+            contentTags.push(tLower);
+          }
+        });
+
+        // Quality issues present
+        var activeQuality = (res.tags || []).filter(function (t) { return qualityTagNames.includes(t.toLowerCase()); });
+
+        // Build content tags HTML (show up to 6, then "+N more")
+        var TAG_LIMIT = 6;
+        var visibleTags = contentTags.slice(0, TAG_LIMIT);
+        var extraCount = contentTags.length - TAG_LIMIT;
+        var contentTagsHtml = visibleTags.map(function (t) {
+          return '<span class="photo-tag ai-object">' + t + '</span>';
         }).join('');
+        if (extraCount > 0) {
+          contentTagsHtml += '<span class="photo-tag tag-more">+' + extraCount + ' more</span>';
+        }
+
+        // Build quality indicators HTML (compact icons)
+        var qualityHtml = activeQuality.map(function (t) {
+          var icon = qualityIcons[t.toLowerCase()] || '⚠️';
+          return '<span class="photo-quality-indicator" title="' + t + '">' + icon + '</span>';
+        }).join('');
+
         var thumbSrc = res.thumbUrl || '';
         card.innerHTML = [
           '<div class="photo-card-image">',
           thumbSrc ? '<img src="' + thumbSrc + '" alt="' + res.name + '" loading="lazy">' : '<div style="width:100%;height:100%;background:#e5e7eb;display:flex;align-items:center;justify-content:center;font-size:32px;">🖼️</div>',
           '<div class="photo-card-select" onclick="event.stopPropagation();toggleCardSelect(' + res.id + ')">' + (sel ? '✓' : '') + '</div>',
           '<div class="photo-card-score ' + sc + '">' + res.overallScore + '</div>',
+          qualityHtml ? '<div class="photo-card-quality-icons">' + qualityHtml + '</div>' : '',
           '</div>',
           '<div class="photo-card-info">',
           '<div class="photo-card-name" title="' + res.name + '">' + res.name + '</div>',
-          '<div class="photo-card-meta"><span class="photo-card-size">' + formatFileSize(res.size) + '</span><div class="photo-card-tags">' + tagsHtml + '</div></div>',
+          '<div class="photo-card-meta"><span class="photo-card-size">' + formatFileSize(res.size) + '</span>' + (contentTags.length > 0 ? '<div class="photo-card-tags">' + contentTagsHtml + '</div>' : '') + '</div>',
           '</div>'
         ].join('');
         card.addEventListener('click', function (e) {
@@ -1410,6 +1480,27 @@
       var si = document.createElement('div'); si.className = 'analysis-item';
       si.innerHTML = '<span class="analysis-item-label">💾 File Size</span><span class="analysis-item-value" style="color:#6b7280;margin-left:auto">' + formatFileSize(res.size) + '</span>';
       det.appendChild(si);
+
+      // AI Content Tags section (API + COCO-SSD objects, no quality tags)
+      var qualityTagNames = ['blur', 'dupe', 'master', 'dark', 'bright', 'overexp', 'overexposed', 'backlit', 'cropped-subject', 'error', 'underexposed', 'low-contrast', 'high-contrast', 'desaturated', 'oversaturated', 'poor-composition'];
+      var allContentTags = (res.apiTags || []).slice();
+      (res.tags || []).forEach(function (t) {
+        var tLower = t.toLowerCase();
+        if (!qualityTagNames.includes(tLower) && !allContentTags.includes(tLower)) {
+          allContentTags.push(tLower);
+        }
+      });
+      if (allContentTags.length > 0) {
+        var tagSection = document.createElement('div');
+        tagSection.className = 'lightbox-ai-tags';
+        tagSection.innerHTML = '<div class="lightbox-ai-tags-title">🏷️ AI Tags <span class="lightbox-ai-tags-count">' + allContentTags.length + '</span></div>' +
+          '<div class="lightbox-ai-tags-list">' +
+          allContentTags.map(function (t) {
+            return '<span class="lightbox-ai-tag">' + t + '</span>';
+          }).join('') +
+          '</div>';
+        det.appendChild(tagSection);
+      }
       var btn = document.getElementById('lightbox-select-btn');
       var isSel = state.selectedIds.has(res.id);
       btn.textContent = isSel ? '✓ Selected' : '✓ Select This Photo';
