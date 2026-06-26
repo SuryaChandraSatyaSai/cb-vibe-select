@@ -219,6 +219,14 @@ export default function ImageGallery({ images, loading, onResetComplete }: Image
                           onClick={() => setActiveLightboxImage(img)}
                           className="group relative cursor-pointer aspect-square bg-zinc-100 rounded-lg overflow-hidden border border-zinc-200 hover:border-primary/50 transition-all duration-300 shadow-sm"
                         >
+                          {/* Aesthetic Score Badge */}
+                          {status === "completed" && typeof img.qualityScore === "number" && (
+                            <div className="absolute top-2 left-2 z-10 px-2 py-0.5 bg-black/65 backdrop-blur-md border border-white/10 rounded-md text-white text-[11px] font-extrabold flex items-center gap-1 shadow-sm select-none transition-all duration-300">
+                              <span className="text-amber-400">★</span>
+                              <span>{img.qualityScore.toFixed(1)}</span>
+                            </div>
+                          )}
+
                           {/* Image */}
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img
@@ -362,6 +370,46 @@ export default function ImageGallery({ images, loading, onResetComplete }: Image
                       <span className="text-red-700 text-xs font-mono break-all bg-red-50 border border-red-150 p-2 rounded block mt-1 leading-normal max-h-24 overflow-y-auto">
                         {activeLightboxImage.analysisError}
                       </span>
+                    </div>
+                  )}
+
+                  {/* Aesthetic Quality Rating Meter */}
+                  {typeof activeLightboxImage.qualityScore === "number" && (
+                    <div className="border border-zinc-200 rounded-xl p-3 bg-zinc-50/50 shadow-inner">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-[10px] uppercase font-bold text-zinc-400 block">Aesthetic Score</span>
+                        <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded uppercase tracking-wider border ${
+                          activeLightboxImage.qualityScore >= 7.0
+                            ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                            : activeLightboxImage.qualityScore >= 5.0
+                              ? "bg-amber-50 text-amber-700 border-amber-200"
+                              : "bg-red-50 text-red-700 border-red-200"
+                        }`}>
+                          {activeLightboxImage.qualityScore >= 9.0 ? "Exceptional" :
+                           activeLightboxImage.qualityScore >= 8.0 ? "Very Good" :
+                           activeLightboxImage.qualityScore >= 7.0 ? "Good" :
+                           activeLightboxImage.qualityScore >= 5.0 ? "Average" : "Low Quality"}
+                        </span>
+                      </div>
+                      <div className="flex items-baseline gap-1">
+                        <span className="text-2xl font-extrabold text-zinc-900 leading-none">
+                          {activeLightboxImage.qualityScore.toFixed(1)}
+                        </span>
+                        <span className="text-xs font-semibold text-zinc-400">/ 10.0</span>
+                      </div>
+                      {/* Progress Bar */}
+                      <div className="w-full bg-zinc-200/60 h-2 rounded-full overflow-hidden border border-zinc-200/40 mt-2">
+                        <div
+                          className={`h-full rounded-full transition-all duration-500 ${
+                            activeLightboxImage.qualityScore >= 7.0
+                              ? "bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.3)]"
+                              : activeLightboxImage.qualityScore >= 5.0
+                                ? "bg-amber-500"
+                                : "bg-red-500"
+                          }`}
+                          style={{ width: `${activeLightboxImage.qualityScore * 10}%` }}
+                        />
+                      </div>
                     </div>
                   )}
 
