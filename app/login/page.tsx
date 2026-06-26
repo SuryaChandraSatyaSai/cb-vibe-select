@@ -24,37 +24,33 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   };
 
   return (
-    <div className="relative min-h-screen bg-zinc-950 text-zinc-150 flex flex-col items-center justify-center p-4 overflow-hidden selection:bg-indigo-500 selection:text-white">
-      {/* Decorative Blur Blobs */}
-      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[400px] h-[400px] bg-indigo-600/10 rounded-full blur-[100px] pointer-events-none -z-10" />
-      <div className="absolute top-1/2 left-1/3 w-[300px] h-[300px] bg-violet-600/10 rounded-full blur-[80px] pointer-events-none -z-10" />
-
+    <div className="relative min-h-screen bg-zinc-50 text-zinc-900 flex flex-col items-center justify-center p-4 overflow-hidden selection:bg-primary selection:text-white">
       {/* Login Card */}
-      <div className="w-full max-w-md bg-zinc-900/60 border border-zinc-800/80 rounded-2xl p-8 backdrop-blur-xl shadow-2xl flex flex-col items-center text-center">
+      <div className="w-full max-w-md bg-white border border-zinc-200 rounded-2xl p-8 shadow-sm flex flex-col items-center text-center">
         {/* Brand Logo Header */}
-        <div className="p-4 bg-zinc-950/80 border border-zinc-800 rounded-2xl mb-6 shadow-xl relative group">
-          <div className="absolute inset-0 bg-indigo-500/10 rounded-2xl blur-md group-hover:bg-indigo-500/20 transition-all pointer-events-none" />
-          <ShieldCheck className="w-10 h-10 text-indigo-400 relative z-10" />
+        <div className="p-4 bg-zinc-50 border border-zinc-200 rounded-2xl mb-6 shadow-sm relative group">
+          <div className="absolute inset-0 bg-primary/5 rounded-2xl group-hover:bg-primary/10 transition-all pointer-events-none" />
+          <ShieldCheck className="w-10 h-10 text-primary relative z-10" />
         </div>
 
-        <span className="px-2.5 py-1 bg-indigo-500/10 border border-indigo-500/30 rounded-full text-indigo-400 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 mb-2">
+        <span className="px-2.5 py-1 bg-primary/10 border border-primary/20 rounded-full text-primary text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 mb-2">
           <Sparkles className="w-3 h-3 animate-pulse" /> Corporate Portal
         </span>
 
-        <h1 className="text-2xl font-extrabold tracking-tight bg-gradient-to-r from-indigo-300 via-violet-300 to-indigo-300 bg-clip-text text-transparent">
+        <h1 className="text-2xl font-extrabold tracking-tight text-zinc-900">
           VibeSelect Authorization
         </h1>
-        <p className="text-zinc-500 text-xs mt-2 max-w-xs">
+        <p className="text-zinc-500 text-xs mt-2 max-w-xs leading-relaxed">
           Authorized team members can access visual asset libraries, quality analyses, and metadata tracking.
         </p>
 
         {/* Dynamic Error State */}
         {error && (
-          <div className="w-full mt-6 p-4 bg-red-950/20 border border-red-900/40 rounded-xl text-left flex gap-3 animate-headShake">
-            <AlertTriangle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+          <div className="w-full mt-6 p-4 bg-red-50 border border-red-200 rounded-xl text-left flex gap-3">
+            <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
             <div>
-              <h3 className="text-xs font-bold text-red-300">Sign-in Blocked</h3>
-              <p className="text-[11px] text-zinc-400 mt-1 leading-relaxed">
+              <h3 className="text-xs font-bold text-red-800">Sign-in Blocked</h3>
+              <p className="text-[11px] text-red-700 mt-1 leading-relaxed">
                 {getErrorMessage(error)}
               </p>
             </div>
@@ -71,7 +67,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
         >
           <button
             type="submit"
-            className="w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white text-sm font-semibold rounded-lg shadow-lg hover:shadow-indigo-500/20 flex items-center justify-center gap-3 transition-all duration-300 transform active:scale-[0.98]"
+            className="w-full py-3 px-4 bg-primary hover:bg-primary-hover active:bg-blue-700 text-white text-sm font-semibold rounded-lg shadow-sm hover:shadow-primary/15 flex items-center justify-center gap-3 transition-all duration-300 transform active:scale-[0.98]"
           >
             {/* Microsoft Windows Icon */}
             <svg
@@ -85,12 +81,12 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
           </button>
         </form>
 
-        <p className="text-[10px] text-zinc-650 mt-8">
+        <p className="text-[10px] text-zinc-400 mt-8">
           Strictly secured with Microsoft Entra ID OAuth 2.0 protocol.
         </p>
       </div>
 
-      <footer className="mt-8 text-center text-[10px] text-zinc-700">
+      <footer className="mt-8 text-center text-[10px] text-zinc-400">
         <p>VibeSelect Secure Gateway • Codebasics Inc.</p>
       </footer>
     </div>
