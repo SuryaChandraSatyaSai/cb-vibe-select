@@ -4,6 +4,7 @@ import AdmZip from "adm-zip";
 import dbConnect from "@/lib/db";
 import ImageModel from "@/models/Image";
 import { auth } from "@/auth";
+import { triggerQueueProcessing } from "@/lib/queue";
 
 // Configure Cloudinary
 cloudinary.config({
@@ -214,6 +215,7 @@ export async function POST(req: NextRequest) {
         fileSize: item.size,
         uploadDate: todayStr,
         uploadedBy: userEmail,
+        status: "pending",
       });
 
       uploadedRecords.push({
@@ -258,6 +260,10 @@ export async function POST(req: NextRequest) {
       : status === "partial_success"
         ? "Upload finished with some files skipped or partial imports."
         : "No files were successfully uploaded.";
+
+  if (uploadedRecords.length > 0) {
+    triggerQueueProcessing();
+  }
 
   return NextResponse.json(
     {

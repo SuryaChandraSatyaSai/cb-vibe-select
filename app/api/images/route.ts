@@ -3,6 +3,7 @@ import { v2 as cloudinary } from "cloudinary";
 import dbConnect from "@/lib/db";
 import ImageModel from "@/models/Image";
 import { auth } from "@/auth";
+import { triggerQueueProcessing } from "@/lib/queue";
 
 // Configure Cloudinary
 cloudinary.config({
@@ -24,6 +25,13 @@ export async function GET() {
   try {
     await dbConnect();
     const images = await ImageModel.find({}).sort({ createdAt: -1 });
+
+    // If any image is pending or processing, trigger the queue processing to make sure worker is active
+    const hasActiveJobs = images.some((img) => img.status === "pending" || img.status === "processing");
+    if (hasActiveJobs) {
+      triggerQueueProcessing();
+    }
+
     return NextResponse.json({
       success: true,
       images,

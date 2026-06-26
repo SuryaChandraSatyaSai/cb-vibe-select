@@ -12,7 +12,9 @@ import {
   Trash2, 
   Loader2, 
   Image as ImageIcon,
-  Info
+  Info,
+  Clock,
+  AlertTriangle
 } from "lucide-react";
 
 export interface ImageRecord {
@@ -25,6 +27,16 @@ export interface ImageRecord {
   uploadDate: string; // YYYY-MM-DD
   uploadedBy: string; // Uploader email
   createdAt: string;
+  status?: "pending" | "processing" | "completed" | "failed";
+  analysisError?: string;
+  qualityScore?: number;
+  attributes?: {
+    brightness?: number;
+    saturation?: number;
+    temperature?: "warm" | "cool" | "neutral";
+    palette?: string[];
+  };
+  tags?: string[];
 }
 
 interface ImageGalleryProps {
@@ -195,11 +207,12 @@ export default function ImageGallery({ images, loading, onResetComplete }: Image
               </button>
 
               {/* Collapsible Body (Grid) */}
-              {!isCollapsed && (
+               {!isCollapsed && (
                 <div className="p-5">
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
                     {dateImages.map((img) => {
                       const fromZip = img.originalPath && img.originalPath !== img.filename;
+                      const status = img.status || "completed";
                       return (
                         <div
                           key={img._id}
@@ -211,29 +224,57 @@ export default function ImageGallery({ images, loading, onResetComplete }: Image
                           <img
                             src={img.cloudinaryUrl}
                             alt={img.filename}
-                            className="object-cover w-full h-full group-hover:scale-105 transition-transform duration-500 ease-out"
+                            className={`object-cover w-full h-full transition-transform duration-500 ease-out ${
+                              status === "completed" ? "group-hover:scale-105" : "opacity-50 blur-[0.5px]"
+                            }`}
                             loading="lazy"
                           />
 
+                          {/* Processing & Error Overlays */}
+                          {status !== "completed" && (
+                            <div className="absolute inset-0 bg-black/45 flex flex-col items-center justify-center p-3 text-center select-none">
+                              {status === "pending" && (
+                                <>
+                                  <Clock className="w-5 h-5 text-zinc-300 animate-pulse mb-1" />
+                                  <span className="text-zinc-300 text-[10px] font-bold uppercase tracking-wider">Queued</span>
+                                </>
+                              )}
+                              {status === "processing" && (
+                                <>
+                                  <Loader2 className="w-5 h-5 text-primary animate-spin mb-1" />
+                                  <span className="text-primary text-[10px] font-bold uppercase tracking-wider animate-pulse">Analyzing</span>
+                                </>
+                              )}
+                              {status === "failed" && (
+                                <>
+                                  <AlertTriangle className="w-5 h-5 text-red-500 mb-1" />
+                                  <span className="text-red-400 text-[10px] font-bold uppercase tracking-wider">Failed</span>
+                                </>
+                              )}
+                            </div>
+                          )}
+
                           {/* Hover Overlay */}
-                          <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-end p-3">
-                            <Eye className="w-5 h-5 text-primary absolute top-2 right-2 drop-shadow" />
-                            <p className="text-white font-medium text-xs truncate drop-shadow">
-                              {img.filename}
-                            </p>
-                            <p className="text-primary text-[10px] font-bold truncate drop-shadow">
-                              By: {img.uploadedBy ? img.uploadedBy.split("@")[0] : "System"}
-                            </p>
-                            <p className="text-zinc-300 text-[10px] flex items-center gap-1 mt-0.5">
-                              <HardDrive className="w-3 h-3" />
-                              {formatSize(img.fileSize)}
-                            </p>
-                            {fromZip && (
-                              <p className="text-amber-450 text-[9px] truncate font-mono mt-0.5">
-                                ZIP: {img.originalPath}
+                          {status === "completed" && (
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-end p-3">
+                              <Eye className="w-5 h-5 text-primary absolute top-2 right-2 drop-shadow" />
+                              <p className="text-white font-medium text-xs truncate drop-shadow">
+                                {img.filename}
                               </p>
-                            )}
-                          </div>
+                              <p className="text-primary text-[10px] font-bold truncate drop-shadow">
+                                By: {img.uploadedBy ? img.uploadedBy.split("@")[0] : "System"}
+                              </p>
+                              <p className="text-zinc-300 text-[10px] flex items-center gap-1 mt-0.5">
+                                <HardDrive className="w-3 h-3" />
+                                {formatSize(img.fileSize)}
+                              </p>
+                              {fromZip && (
+                                <p className="text-amber-455 text-[9px] truncate font-mono mt-0.5">
+                                  ZIP: {img.originalPath}
+                                </p>
+                              )}
+                            </div>
+                          )}
                         </div>
                       );
                     })}
@@ -283,6 +324,47 @@ export default function ImageGallery({ images, loading, onResetComplete }: Image
                 </div>
 
                 <div className="space-y-4">
+                  {activeLightboxImage.status && activeLightboxImage.status !== "completed" && (
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-zinc-400 block">Analysis Status</span>
+                      <div className={`mt-1 flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-semibold w-fit border ${
+                        activeLightboxImage.status === "pending"
+                          ? "bg-zinc-100 text-zinc-650 border-zinc-200"
+                          : activeLightboxImage.status === "processing"
+                            ? "bg-primary/5 text-primary border-primary/20 animate-pulse"
+                            : "bg-red-50 text-red-700 border-red-200"
+                      }`}>
+                        {activeLightboxImage.status === "pending" && (
+                          <>
+                            <Clock className="w-3.5 h-3.5" />
+                            <span>Queued</span>
+                          </>
+                        )}
+                        {activeLightboxImage.status === "processing" && (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            <span>Analyzing...</span>
+                          </>
+                        )}
+                        {activeLightboxImage.status === "failed" && (
+                          <>
+                            <AlertTriangle className="w-3.5 h-3.5 text-red-500" />
+                            <span>Failed</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {activeLightboxImage.analysisError && (
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-red-500 block">Analysis Error</span>
+                      <span className="text-red-700 text-xs font-mono break-all bg-red-50 border border-red-150 p-2 rounded block mt-1 leading-normal max-h-24 overflow-y-auto">
+                        {activeLightboxImage.analysisError}
+                      </span>
+                    </div>
+                  )}
+
                   <div>
                     <span className="text-[10px] uppercase font-bold text-zinc-400 block">Filename</span>
                     <span className="text-zinc-800 text-sm font-semibold break-all leading-normal">{activeLightboxImage.filename}</span>

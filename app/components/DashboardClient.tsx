@@ -91,6 +91,25 @@ export default function DashboardClient({ session }: DashboardClientProps) {
     fetchImages();
   }, []);
 
+  // Poll for status updates if there are any active queue processing jobs
+  useEffect(() => {
+    const hasActiveJobs = images.some((img) => img.status === "pending" || img.status === "processing");
+    if (!hasActiveJobs) return;
+
+    const interval = setInterval(() => {
+      fetch("/api/images")
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.success && data.images) {
+            setImages(data.images);
+          }
+        })
+        .catch((err) => console.error("Error polling image updates:", err));
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [images]);
+
   // Compute stats
   const uniqueDatesCount = new Set(images.map((img) => img.uploadDate)).size;
   const totalStorageBytes = images.reduce((sum, img) => sum + img.fileSize, 0);
@@ -116,15 +135,15 @@ export default function DashboardClient({ session }: DashboardClientProps) {
           <div>
             <div className="flex items-center gap-2">
               <span className="px-2.5 py-1 bg-primary/10 border border-primary/20 rounded-full text-primary text-xs font-semibold uppercase tracking-wider flex items-center gap-1">
-                <Sparkles className="w-3 h-3" /> Stage 1
+                <Sparkles className="w-3 h-3" /> Stage 2
               </span>
-              <span className="text-zinc-500 text-xs">• Ingestion & Auth Active</span>
+              <span className="text-zinc-500 text-xs">• Ingestion & Queue Active</span>
             </div>
             <h1 className="text-3xl font-extrabold tracking-tight mt-2 text-zinc-900">
-              VibeSelect Ingestion
+              VibeSelect Curation
             </h1>
             <p className="text-zinc-500 text-sm mt-1 max-w-xl">
-              Upload raw images or ZIP folders, catalog assets date-wise in Cloudinary, and retrieve shared assets tracked in MongoDB Atlas.
+              Upload raw images or ZIP folders, catalog assets date-wise, and process quality assessment in the background.
             </p>
           </div>
 

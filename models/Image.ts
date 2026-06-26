@@ -17,6 +17,8 @@ export interface IImage extends Document {
     palette?: string[];
   };
   tags?: string[];
+  status?: "pending" | "processing" | "completed" | "failed";
+  analysisError?: string;
 }
 
 const ImageSchema: Schema = new Schema(
@@ -37,6 +39,13 @@ const ImageSchema: Schema = new Schema(
       palette: { type: [String] },
     },
     tags: { type: [String] },
+    status: {
+      type: String,
+      enum: ["pending", "processing", "completed", "failed"],
+      default: "completed",
+      index: true,
+    },
+    analysisError: { type: String },
   },
   {
     timestamps: true,
