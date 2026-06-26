@@ -1,6 +1,6 @@
 import dbConnect from "./db";
 import ImageModel from "@/models/Image";
-import { queryAestheticScore } from "./hf";
+import { queryAestheticScore, queryImageTags } from "./hf";
 
 let isProcessing = false;
 
@@ -15,9 +15,23 @@ function calculateFallbackAestheticScore(filename: string, fileSize: number): nu
   return Math.round(score * 10) / 10;
 }
 
+// Fallback tag parser that extracts tags from filename tokens
+function parseFallbackTags(filename: string): string[] {
+  const nameWithoutExt = filename.replace(/\.[^/.]+$/, "");
+  const tokens = nameWithoutExt.split(/[\s_\-\.]+/);
+  const tags = tokens
+    .map((t) => t.toLowerCase().trim())
+    .filter((t) => /^[a-z]{3,20}$/i.test(t) && !["img", "dsc", "photo", "image", "upload"].includes(t));
+  
+  tags.push("curated");
+  return Array.from(new Set(tags));
+}
+
 async function analyzeImage(imageDoc: any) {
   console.log(`[Queue] Analyzing image: ${imageDoc.filename} (${imageDoc.cloudinaryUrl})`);
   
+  let imageBuffer: Buffer | null = null;
+
   try {
     // 1. Fetch image binary buffer from Cloudinary URL
     console.log(`[Queue] Fetching image binary from Cloudinary...`);
@@ -26,21 +40,43 @@ async function analyzeImage(imageDoc: any) {
       throw new Error(`Failed to fetch image from Cloudinary: ${imgRes.statusText}`);
     }
     const arrayBuffer = await imgRes.arrayBuffer();
-    const imageBuffer = Buffer.from(arrayBuffer);
-
-    // 2. Query Hugging Face model
-    console.log(`[Queue] Querying Hugging Face for aesthetic scoring...`);
-    const aestheticScore = await queryAestheticScore(imageBuffer);
-    
-    // Save aesthetic score
-    imageDoc.qualityScore = aestheticScore;
-    console.log(`[Queue] Aesthetic score for ${imageDoc.filename}: ${aestheticScore}`);
+    imageBuffer = Buffer.from(arrayBuffer);
   } catch (err: any) {
-    console.warn(`[Queue] HF analysis failed. Falling back to local pseudo-aesthetic score. Error:`, err.message || err);
-    
+    console.error(`[Queue] Error fetching image binary:`, err.message || err);
+  }
+
+  // A. Aesthetic Scoring
+  if (imageBuffer) {
+    try {
+      console.log(`[Queue] Querying Hugging Face for aesthetic scoring...`);
+      const aestheticScore = await queryAestheticScore(imageBuffer);
+      imageDoc.qualityScore = aestheticScore;
+      console.log(`[Queue] Aesthetic score for ${imageDoc.filename}: ${aestheticScore}`);
+    } catch (err: any) {
+      console.warn(`[Queue] HF aesthetic scoring failed. Falling back to local scoring. Error:`, err.message || err);
+      const fallbackScore = calculateFallbackAestheticScore(imageDoc.filename, imageDoc.fileSize);
+      imageDoc.qualityScore = fallbackScore;
+    }
+  } else {
     const fallbackScore = calculateFallbackAestheticScore(imageDoc.filename, imageDoc.fileSize);
     imageDoc.qualityScore = fallbackScore;
-    console.log(`[Queue] Fallback aesthetic score for ${imageDoc.filename}: ${fallbackScore}`);
+  }
+
+  // B. Image Tagging (RAM++ / fallback classification models)
+  if (imageBuffer) {
+    try {
+      console.log(`[Queue] Querying Hugging Face for image tagging...`);
+      const tags = await queryImageTags(imageBuffer);
+      imageDoc.tags = tags;
+      console.log(`[Queue] Tags for ${imageDoc.filename}:`, tags);
+    } catch (err: any) {
+      console.warn(`[Queue] HF image tagging failed. Falling back to filename parser. Error:`, err.message || err);
+      const fallbackTags = parseFallbackTags(imageDoc.filename);
+      imageDoc.tags = fallbackTags;
+    }
+  } else {
+    const fallbackTags = parseFallbackTags(imageDoc.filename);
+    imageDoc.tags = fallbackTags;
   }
 
   // Pre-initialize standard empty metrics for future stages
@@ -50,7 +86,6 @@ async function analyzeImage(imageDoc: any) {
     temperature: "neutral",
     palette: ["#18181b", "#3f3f46", "#e4e4e7"],
   };
-  imageDoc.tags = ["ingest_stage6_completed"];
 }
 
 export async function triggerQueueProcessing() {

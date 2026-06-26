@@ -89,3 +89,104 @@ export async function queryAestheticScore(imageBuffer: Buffer): Promise<number> 
 
   throw lastError || new Error("All Hugging Face aesthetic models failed to execute.");
 }
+
+/**
+ * Queries Hugging Face Inference API for image tagging.
+ * 
+ * Attempts to query:
+ * 1. xinyu1205/recognize-anything-plus-model (RAM++)
+ * 2. google/vit-base-patch16-224 (fallback classification)
+ * 3. microsoft/resnet-50 (fallback classification)
+ * 
+ * @param imageBuffer The binary buffer of the image.
+ * @returns A promise resolving to an array of string tags.
+ */
+export async function queryImageTags(imageBuffer: Buffer): Promise<string[]> {
+  const models = [
+    {
+      id: "xinyu1205/recognize-anything-plus-model",
+      parse: (data: any): string[] => {
+        if (Array.isArray(data)) {
+          return data
+            .filter((item: any) => typeof item.label === "string" && (item.score === undefined || item.score > 0.12))
+            .map((item: any) => item.label.toLowerCase().trim());
+        }
+        if (typeof data === "string") {
+          return data.split(",").map(t => t.trim().toLowerCase()).filter(Boolean);
+        }
+        if (data && typeof data.tags === "string") {
+          return data.tags.split(",").map((t: string) => t.trim().toLowerCase()).filter(Boolean);
+        }
+        if (data && Array.isArray(data.tags)) {
+          return data.tags.map((t: any) => String(t).trim().toLowerCase()).filter(Boolean);
+        }
+        throw new Error("Could not parse tags from RAM++ output shape.");
+      }
+    },
+    {
+      id: "google/vit-base-patch16-224",
+      parse: (data: any): string[] => {
+        if (Array.isArray(data)) {
+          return data
+            .filter((item: any) => typeof item.label === "string" && (item.score === undefined || item.score > 0.12))
+            .map((item: any) => item.label.toLowerCase().trim());
+        }
+        throw new Error("Could not parse tags from ViT output shape.");
+      }
+    },
+    {
+      id: "microsoft/resnet-50",
+      parse: (data: any): string[] => {
+        if (Array.isArray(data)) {
+          return data
+            .filter((item: any) => typeof item.label === "string" && (item.score === undefined || item.score > 0.12))
+            .map((item: any) => item.label.toLowerCase().trim());
+        }
+        throw new Error("Could not parse tags from ResNet output shape.");
+      }
+    }
+  ];
+
+  let lastError: any = null;
+
+  for (const model of models) {
+    try {
+      console.log(`[HF API] Querying image tags model: ${model.id}...`);
+      const url = `https://api-inference.huggingface.co/models/${model.id}`;
+      const headers: Record<string, string> = {
+        "Content-Type": "application/octet-stream",
+      };
+      if (HF_TOKEN) {
+        headers["Authorization"] = `Bearer ${HF_TOKEN}`;
+      }
+
+      const response = await fetch(url, {
+        headers,
+        method: "POST",
+        body: new Uint8Array(imageBuffer),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HF Inference API returned ${response.status}: ${errorText}`);
+      }
+
+      const data = await response.json();
+      console.log(`[HF API] Model ${model.id} returned tags data:`, JSON.stringify(data).substring(0, 150));
+
+      const tags = model.parse(data);
+      if (Array.isArray(tags) && tags.length > 0) {
+        // Remove duplicate tags, filter sub-commas or too long labels
+        const uniqueTags = Array.from(new Set(tags))
+          .map(t => t.split(",")[0].trim())
+          .filter(t => t.length > 0 && t.length < 30);
+        return uniqueTags;
+      }
+    } catch (err: any) {
+      console.warn(`[HF API] Warning: Tag model ${model.id} failed:`, err.message || err);
+      lastError = err;
+    }
+  }
+
+  throw lastError || new Error("All Hugging Face tagging models failed to execute.");
+}

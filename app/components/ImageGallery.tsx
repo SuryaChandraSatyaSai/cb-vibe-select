@@ -276,8 +276,21 @@ export default function ImageGallery({ images, loading, onResetComplete }: Image
                                 <HardDrive className="w-3 h-3" />
                                 {formatSize(img.fileSize)}
                               </p>
+                              {/* Preview Tags */}
+                              {Array.isArray(img.tags) && img.tags.length > 0 && (
+                                <div className="flex flex-wrap gap-1 mt-1 max-h-5 overflow-hidden">
+                                  {img.tags.slice(0, 3).map((tag, idx) => (
+                                    <span
+                                      key={idx}
+                                      className="px-1.5 py-0.5 bg-white/10 border border-white/5 rounded text-[8px] text-zinc-350 font-extrabold uppercase tracking-wide"
+                                    >
+                                      {tag}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
                               {fromZip && (
-                                <p className="text-amber-455 text-[9px] truncate font-mono mt-0.5">
+                                <p className="text-amber-455 text-[9px] truncate font-mono mt-1">
                                   ZIP: {img.originalPath}
                                 </p>
                               )}
@@ -409,6 +422,23 @@ export default function ImageGallery({ images, loading, onResetComplete }: Image
                           }`}
                           style={{ width: `${activeLightboxImage.qualityScore * 10}%` }}
                         />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Visual Tags */}
+                  {Array.isArray(activeLightboxImage.tags) && activeLightboxImage.tags.length > 0 && (
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-zinc-400 block mb-1.5">Visual Keywords</span>
+                      <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto pr-1">
+                        {activeLightboxImage.tags.map((tag, idx) => (
+                          <span
+                            key={idx}
+                            className="px-2 py-0.5 bg-zinc-100 hover:bg-zinc-200/80 border border-zinc-200 rounded text-zinc-650 text-[10px] font-semibold transition-colors cursor-default"
+                          >
+                            {tag}
+                          </span>
+                        ))}
                       </div>
                     </div>
                   )}
