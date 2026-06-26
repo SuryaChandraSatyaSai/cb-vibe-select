@@ -28,12 +28,46 @@ export default function DashboardClient({ session }: DashboardClientProps) {
   const [dbConnected, setDbConnected] = useState<boolean | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  const [storageData, setStorageData] = useState<{
+    used: number;
+    limit: number;
+    usedPercent: number;
+    free: number;
+    plan: string;
+  } | null>(null);
+  const [storageLoading, setStorageLoading] = useState<boolean>(true);
+
   const user = session?.user;
   const userRole = user?.role || "VIEWER";
+
+  const fetchStorage = async () => {
+    setStorageLoading(true);
+    try {
+      const response = await fetch("/api/storage");
+      const data = await response.json();
+      if (data.success) {
+        setStorageData({
+          used: data.storage.used,
+          limit: data.storage.limit,
+          usedPercent: data.storage.usedPercent,
+          free: data.storage.free,
+          plan: data.plan,
+        });
+      } else {
+        setStorageData(null);
+      }
+    } catch (err) {
+      console.error("Error fetching storage metrics:", err);
+      setStorageData(null);
+    } finally {
+      setStorageLoading(false);
+    }
+  };
 
   const fetchImages = async () => {
     setLoading(true);
     setErrorMessage(null);
+    fetchStorage(); // Refresh storage metrics concurrently
     try {
       const response = await fetch("/api/images");
       const data = await response.json();
@@ -180,10 +214,34 @@ export default function DashboardClient({ session }: DashboardClientProps) {
               <Cloudy className="w-4 h-4 text-sky-400" />
               <span className="text-xs font-medium">Cloud Storage</span>
             </div>
-            <p className="text-sm font-bold text-zinc-200 mt-1 flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-sky-500 shadow-[0_0_8px_rgba(56,189,248,0.5)]" />
-              Cloudinary Configured
-            </p>
+            {storageLoading ? (
+              <div className="space-y-2 mt-2">
+                <div className="h-5 bg-zinc-800/60 rounded animate-pulse w-3/4" />
+                <div className="h-1.5 bg-zinc-800/60 rounded animate-pulse w-full" />
+                <div className="h-3 bg-zinc-800/60 rounded animate-pulse w-1/2" />
+              </div>
+            ) : storageData ? (
+              <div>
+                <p className="text-sm font-bold text-zinc-200 mt-1">
+                  {formatTotalSize(storageData.free)} Free
+                </p>
+                <div className="w-full bg-zinc-800 rounded-full h-1.5 mt-2 overflow-hidden border border-zinc-700/20">
+                  <div 
+                    className="bg-gradient-to-r from-sky-400 to-indigo-500 h-full rounded-full transition-all duration-500" 
+                    style={{ width: `${Math.max(1, Math.min(100, storageData.usedPercent))}%` }}
+                  />
+                </div>
+                <div className="flex justify-between items-center text-[10px] text-zinc-500 mt-1.5 font-medium">
+                  <span>{formatTotalSize(storageData.used)} used</span>
+                  <span>{formatTotalSize(storageData.limit)} max ({storageData.plan})</span>
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm font-bold text-zinc-400 mt-1 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-zinc-650" />
+                Status Unavailable
+              </p>
+            )}
           </div>
 
           <div className="bg-zinc-900/40 border border-zinc-800/80 rounded-xl p-4 backdrop-blur-xl">
