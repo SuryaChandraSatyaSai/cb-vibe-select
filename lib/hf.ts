@@ -190,3 +190,58 @@ export async function queryImageTags(imageBuffer: Buffer): Promise<string[]> {
 
   throw lastError || new Error("All Hugging Face tagging models failed to execute.");
 }
+
+/**
+ * Queries Hugging Face Inference API for object detection with bounding boxes.
+ * 
+ * Target model: facebook/detr-resnet-50 (DEtection TRansformer)
+ * 
+ * @param imageBuffer The binary buffer of the image.
+ * @returns A promise resolving to an array of object labels, confidence scores, and bounding boxes.
+ */
+export async function queryObjectDetection(imageBuffer: Buffer): Promise<any[]> {
+  try {
+    console.log(`[HF API] Querying object detection model: facebook/detr-resnet-50...`);
+    const url = "https://api-inference.huggingface.co/models/facebook/detr-resnet-50";
+    const headers: Record<string, string> = {
+      "Content-Type": "application/octet-stream",
+    };
+    if (HF_TOKEN) {
+      headers["Authorization"] = `Bearer ${HF_TOKEN}`;
+    }
+
+    const response = await fetch(url, {
+      headers,
+      method: "POST",
+      body: new Uint8Array(imageBuffer),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`HF Inference API returned ${response.status}: ${errorText}`);
+    }
+
+    const data = await response.json();
+    console.log(`[HF API] Object detection returned:`, JSON.stringify(data).substring(0, 150));
+
+    if (Array.isArray(data)) {
+      // Filter out detections with confidence below 55% and ensure boxes exist
+      return data
+        .filter((item: any) => typeof item.score === "number" && item.score >= 0.55 && item.box)
+        .map((item: any) => ({
+          label: String(item.label).toLowerCase().trim(),
+          score: Math.round(item.score * 100) / 100,
+          box: {
+            xmin: Math.round(item.box.xmin),
+            ymin: Math.round(item.box.ymin),
+            xmax: Math.round(item.box.xmax),
+            ymax: Math.round(item.box.ymax)
+          }
+        }));
+    }
+    return [];
+  } catch (err: any) {
+    console.warn("[HF API] Warning: Object detection request failed:", err.message || err);
+    return [];
+  }
+}

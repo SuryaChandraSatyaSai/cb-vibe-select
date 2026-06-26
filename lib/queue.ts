@@ -1,6 +1,6 @@
 import dbConnect from "./db";
 import ImageModel from "@/models/Image";
-import { queryAestheticScore, queryImageTags } from "./hf";
+import { queryAestheticScore, queryImageTags, queryObjectDetection } from "./hf";
 
 let isProcessing = false;
 
@@ -77,6 +77,21 @@ async function analyzeImage(imageDoc: any) {
   } else {
     const fallbackTags = parseFallbackTags(imageDoc.filename);
     imageDoc.tags = fallbackTags;
+  }
+
+  // C. Object Detection (bounding boxes)
+  if (imageBuffer) {
+    try {
+      console.log(`[Queue] Querying Hugging Face for object detection...`);
+      const objects = await queryObjectDetection(imageBuffer);
+      imageDoc.objects = objects;
+      console.log(`[Queue] Object detection for ${imageDoc.filename} returned ${objects.length} objects.`);
+    } catch (err: any) {
+      console.warn(`[Queue] HF object detection failed. Error:`, err.message || err);
+      imageDoc.objects = [];
+    }
+  } else {
+    imageDoc.objects = [];
   }
 
   // Pre-initialize standard empty metrics for future stages

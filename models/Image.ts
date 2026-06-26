@@ -19,6 +19,16 @@ export interface IImage extends Document {
   tags?: string[];
   status?: "pending" | "processing" | "completed" | "failed";
   analysisError?: string;
+  objects?: Array<{
+    label: string;
+    score: number;
+    box: {
+      xmin: number;
+      ymin: number;
+      xmax: number;
+      ymax: number;
+    };
+  }>;
 }
 
 const ImageSchema: Schema = new Schema(
@@ -39,6 +49,19 @@ const ImageSchema: Schema = new Schema(
       palette: { type: [String] },
     },
     tags: { type: [String] },
+    objects: {
+      type: [{
+        label: { type: String, required: true },
+        score: { type: Number, required: true },
+        box: {
+          xmin: { type: Number, required: true },
+          ymin: { type: Number, required: true },
+          xmax: { type: Number, required: true },
+          ymax: { type: Number, required: true }
+        }
+      }],
+      default: undefined
+    },
     status: {
       type: String,
       enum: ["pending", "processing", "completed", "failed"],
