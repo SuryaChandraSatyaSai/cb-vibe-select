@@ -15,7 +15,6 @@ import {
   Info,
   Clock,
   AlertTriangle,
-  Target,
   SlidersHorizontal,
   RotateCcw
 } from "lucide-react";
@@ -34,6 +33,7 @@ export interface ImageRecord {
   status?: "pending" | "processing" | "completed" | "failed";
   analysisError?: string;
   qualityScore?: number;
+  qualityReason?: string;
   attributes?: {
     brightness?: number;
     contrast?: number;
@@ -44,16 +44,6 @@ export interface ImageRecord {
     sharpness?: number;
   };
   tags?: string[];
-  objects?: Array<{
-    label: string;
-    score: number;
-    box: {
-      xmin: number;
-      ymin: number;
-      xmax: number;
-      ymax: number;
-    };
-  }>;
 }
 
 interface ImageGalleryProps {
@@ -75,12 +65,8 @@ export default function ImageGallery({ images, loading, onResetComplete }: Image
     : null;
   const [clearing, setClearing] = useState<boolean>(false);
   
-  // Object Detection overlays states
-  const [showBoxes, setShowBoxes] = useState<boolean>(true);
-  const [hoveredObjectIndex, setHoveredObjectIndex] = useState<number | null>(null);
+  // Natural image dimensions for the resolution readout.
   const [renderedDimensions, setRenderedDimensions] = useState<{
-    width: number;
-    height: number;
     naturalWidth: number;
     naturalHeight: number;
   } | null>(null);
@@ -540,7 +526,6 @@ export default function ImageGallery({ images, loading, onResetComplete }: Image
                           key={img._id}
                           onClick={() => {
                             setActiveLightboxImage(img);
-                            setHoveredObjectIndex(null);
                             setRenderedDimensions(null);
                           }}
                           className="group relative cursor-pointer aspect-square bg-zinc-100 rounded-lg overflow-hidden border border-zinc-200 hover:border-primary/50 transition-all duration-300 shadow-sm"
@@ -644,7 +629,6 @@ export default function ImageGallery({ images, loading, onResetComplete }: Image
                 key={img._id}
                 onClick={() => {
                   setActiveLightboxImage(img);
-                  setHoveredObjectIndex(null);
                   setRenderedDimensions(null);
                 }}
                 className="group relative cursor-pointer aspect-square bg-zinc-100 rounded-lg overflow-hidden border border-zinc-200 hover:border-primary/50 transition-all duration-300 shadow-sm"
@@ -754,85 +738,13 @@ export default function ImageGallery({ images, loading, onResetComplete }: Image
                   src={activeLightboxImage.cloudinaryUrl}
                   alt={activeLightboxImage.filename}
                   onLoad={(e) => {
-                    const img = e.currentTarget;
-                    const containerWidth = img.width;
-                    const containerHeight = img.height;
-                    const naturalWidth = img.naturalWidth;
-                    const naturalHeight = img.naturalHeight;
-
-                    // Calculate contained image size
-                    const imageRatio = naturalWidth / naturalHeight;
-                    const containerRatio = containerWidth / containerHeight;
-
-                    let width = containerWidth;
-                    let height = containerHeight;
-
-                    if (imageRatio > containerRatio) {
-                      height = containerWidth / imageRatio;
-                    } else {
-                      width = containerHeight * imageRatio;
-                    }
-
                     setRenderedDimensions({
-                      width,
-                      height,
-                      naturalWidth,
-                      naturalHeight,
+                      naturalWidth: e.currentTarget.naturalWidth,
+                      naturalHeight: e.currentTarget.naturalHeight,
                     });
                   }}
                   className="max-w-full max-h-[60vh] object-contain rounded shadow-sm"
                 />
-
-                {/* Bounding box overlays */}
-                {showBoxes && renderedDimensions && Array.isArray(activeLightboxImage.objects) && (
-                  <div
-                    className="absolute pointer-events-none"
-                    style={{
-                      left: "50%",
-                      top: "50%",
-                      width: `${renderedDimensions.width}px`,
-                      height: `${renderedDimensions.height}px`,
-                      transform: "translate(-50%, -50%)",
-                    }}
-                  >
-                    {activeLightboxImage.objects.map((obj, idx) => {
-                      const scaleX = renderedDimensions.width / renderedDimensions.naturalWidth;
-                      const scaleY = renderedDimensions.height / renderedDimensions.naturalHeight;
-
-                      const left = obj.box.xmin * scaleX;
-                      const top = obj.box.ymin * scaleY;
-                      const width = (obj.box.xmax - obj.box.xmin) * scaleX;
-                      const height = (obj.box.ymax - obj.box.ymin) * scaleY;
-
-                      const isHovered = hoveredObjectIndex === idx;
-
-                      return (
-                        <div
-                          key={idx}
-                          className={`absolute border-2 rounded transition-all duration-200 ${
-                            isHovered
-                              ? "border-primary bg-primary/10 shadow-[0_0_8px_rgba(59,130,246,0.4)] z-20 scale-[1.01]"
-                              : "border-emerald-500 bg-emerald-500/5 z-10"
-                          }`}
-                          style={{
-                            left: `${left}px`,
-                            top: `${top}px`,
-                            width: `${width}px`,
-                            height: `${height}px`,
-                          }}
-                        >
-                          <span
-                            className={`absolute -top-4.5 left-0 px-1 py-0.5 rounded text-[8px] font-bold text-white uppercase tracking-wider transition-colors ${
-                              isHovered ? "bg-primary" : "bg-emerald-500"
-                            }`}
-                          >
-                            {obj.label} ({Math.round(obj.score * 100)}%)
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
               </div>
             </div>
 
@@ -930,6 +842,11 @@ export default function ImageGallery({ images, loading, onResetComplete }: Image
                           style={{ width: `${activeLightboxImage.qualityScore * 10}%` }}
                         />
                       </div>
+                      {activeLightboxImage.qualityReason && (
+                        <p className="text-[11px] text-zinc-500 italic mt-2 leading-snug">
+                          &ldquo;{activeLightboxImage.qualityReason}&rdquo;
+                        </p>
+                      )}
                     </div>
                   )}
 
@@ -1091,54 +1008,6 @@ export default function ImageGallery({ images, loading, onResetComplete }: Image
                           >
                             {tag}
                           </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Object Detection Toggle */}
-                  {Array.isArray(activeLightboxImage.objects) && activeLightboxImage.objects.length > 0 && (
-                    <div className="flex items-center justify-between border-t border-b border-zinc-200 py-3 my-2 select-none">
-                      <div className="flex items-center gap-2">
-                        <Target className="w-4 h-4 text-primary animate-pulse" />
-                        <span className="text-xs font-semibold text-zinc-700">Overlay Object Boxes</span>
-                      </div>
-                      <button
-                        onClick={() => setShowBoxes(!showBoxes)}
-                        className={`w-9 h-5 rounded-full p-0.5 transition-colors focus:outline-none ${
-                          showBoxes ? "bg-primary" : "bg-zinc-350"
-                        }`}
-                      >
-                        <div
-                          className={`bg-white w-4 h-4 rounded-full shadow transition-transform duration-200 ${
-                            showBoxes ? "translate-x-4" : "translate-x-0"
-                          }`}
-                        />
-                      </button>
-                    </div>
-                  )}
-
-                  {/* Object List */}
-                  {showBoxes && Array.isArray(activeLightboxImage.objects) && activeLightboxImage.objects.length > 0 && (
-                    <div>
-                      <span className="text-[10px] uppercase font-bold text-zinc-400 block mb-1.5">Detected Objects</span>
-                      <div className="space-y-1 max-h-36 overflow-y-auto pr-1">
-                        {activeLightboxImage.objects.map((obj, idx) => (
-                          <div
-                            key={idx}
-                            onMouseEnter={() => setHoveredObjectIndex(idx)}
-                            onMouseLeave={() => setHoveredObjectIndex(null)}
-                            className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg border transition-all text-xs cursor-default ${
-                              hoveredObjectIndex === idx
-                                ? "bg-primary/5 border-primary/30 text-primary font-semibold shadow-sm"
-                                : "bg-zinc-50 border-zinc-250 text-zinc-650"
-                            }`}
-                          >
-                            <span className="capitalize">{obj.label}</span>
-                            <span className="text-[10px] font-bold text-zinc-400">
-                              {Math.round(obj.score * 100)}%
-                            </span>
-                          </div>
                         ))}
                       </div>
                     </div>

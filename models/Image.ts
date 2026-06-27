@@ -11,6 +11,7 @@ export interface IImage extends Document {
   uploadedBy: string; // Uploader email
   createdAt: Date;
   qualityScore?: number;
+  qualityReason?: string;
   attributes?: {
     brightness?: number;
     contrast?: number;
@@ -47,6 +48,7 @@ const ImageSchema: Schema = new Schema(
     uploadedBy: { type: String, required: true, index: true },
     createdAt: { type: Date, default: Date.now },
     qualityScore: { type: Number },
+    qualityReason: { type: String },
     attributes: {
       brightness: { type: Number },
       contrast: { type: Number },

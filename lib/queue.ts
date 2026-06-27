@@ -1,6 +1,6 @@
 import dbConnect from "./db";
 import ImageModel from "@/models/Image";
-import { queryImageTags, queryObjectDetection } from "./hf";
+import { judgeImage } from "./groq";
 import { extractImageMetrics } from "./metrics";
 
 let isProcessing = false;
@@ -8,8 +8,9 @@ let isProcessing = false;
 async function analyzeImage(imageDoc: any) {
   console.log(`[Queue] Analyzing image: ${imageDoc.filename} (${imageDoc.cloudinaryUrl})`);
 
-  // 1. Objective quality + colour/lighting metrics from real pixels. This drives the
-  //    score; if it throws the job is marked failed (no fabricated scores).
+  // 1. Objective colour/lighting/focus metrics from real pixels — always free, always
+  //    runs. Powers the gallery filters and is the fallback score. If it throws the
+  //    job is marked failed (no fabricated data).
   const metrics = await extractImageMetrics(imageDoc.cloudinaryUrl);
   imageDoc.attributes = {
     brightness: metrics.brightness,
@@ -20,31 +21,21 @@ async function analyzeImage(imageDoc: any) {
     palette: metrics.palette,
     sharpness: metrics.sharpness,
   };
-  imageDoc.qualityScore = metrics.qualityScore;
-  console.log(`[Queue] Quality score for ${imageDoc.filename}: ${metrics.qualityScore}`);
 
-  // 2. Best-effort enrichment: tags + object detection. These degrade to empty when
-  //    HF serverless is unavailable rather than failing the job or inventing data.
-  let imageBuffer: Buffer | null = null;
+  // 2. Quality score + tags from the free Groq vision judge (most accurate — it
+  //    actually sees blur/exposure). On any failure (rate limit, outage, no key) fall
+  //    back to the local metric score so the pipeline never blocks or fabricates.
   try {
-    const imgRes = await fetch(imageDoc.cloudinaryUrl);
-    if (imgRes.ok) imageBuffer = Buffer.from(await imgRes.arrayBuffer());
-    else console.warn(`[Queue] Could not fetch image binary: ${imgRes.status} ${imgRes.statusText}`);
+    const j = await judgeImage(imageDoc.cloudinaryUrl);
+    imageDoc.qualityScore = j.qualityScore;
+    imageDoc.qualityReason = j.reason || undefined;
+    imageDoc.tags = j.tags;
+    console.log(`[Queue] Groq score for ${imageDoc.filename}: ${j.qualityScore} (${j.reason})`);
   } catch (err: any) {
-    console.warn(`[Queue] Error fetching image binary for enrichment:`, err.message || err);
-  }
-
-  if (imageBuffer) {
-    try {
-      imageDoc.tags = await queryImageTags(imageBuffer);
-    } catch (err: any) {
-      console.warn(`[Queue] Tagging unavailable:`, err.message || err);
-      imageDoc.tags = [];
-    }
-    imageDoc.objects = await queryObjectDetection(imageBuffer); // already returns [] on failure
-  } else {
+    console.warn(`[Queue] Groq judge unavailable, using local metric score:`, err.message || err);
+    imageDoc.qualityScore = metrics.qualityScore;
+    imageDoc.qualityReason = undefined;
     imageDoc.tags = [];
-    imageDoc.objects = [];
   }
 }
 
