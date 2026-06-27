@@ -1,149 +1,49 @@
 import dbConnect from "./db";
 import ImageModel from "@/models/Image";
-import { queryAestheticScore, queryImageTags, queryObjectDetection } from "./hf";
+import { queryImageTags, queryObjectDetection } from "./hf";
 import { extractImageMetrics } from "./metrics";
 
 let isProcessing = false;
 
-// Deterministic fallback generator when Hugging Face API key is missing or rate limited
-function calculateFallbackAestheticScore(filename: string, fileSize: number): number {
-  let hash = 0;
-  for (let i = 0; i < filename.length; i++) {
-    hash = filename.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  const factor = Math.abs(hash + fileSize) % 100; // 0 to 99
-  const score = 5.5 + (3.4 * factor) / 99; // Scale to 5.5 - 8.9
-  return Math.round(score * 10) / 10;
-}
-
-// Fallback tag parser that extracts tags from filename tokens
-function parseFallbackTags(filename: string): string[] {
-  const nameWithoutExt = filename.replace(/\.[^/.]+$/, "");
-  const tokens = nameWithoutExt.split(/[\s_\-\.]+/);
-  const tags = tokens
-    .map((t) => t.toLowerCase().trim())
-    .filter((t) => /^[a-z]{3,20}$/i.test(t) && !["img", "dsc", "photo", "image", "upload"].includes(t));
-  
-  tags.push("curated");
-  return Array.from(new Set(tags));
-}
-
 async function analyzeImage(imageDoc: any) {
   console.log(`[Queue] Analyzing image: ${imageDoc.filename} (${imageDoc.cloudinaryUrl})`);
-  
-  // 1. Extract Custom Technical Image Metrics first
-  let metrics: any = null;
-  try {
-    console.log(`[Queue] Extracting technical image metrics...`);
-    metrics = await extractImageMetrics(imageDoc.cloudinaryUrl);
-    imageDoc.attributes = metrics;
-  } catch (err: any) {
-    console.warn(`[Queue] Technical metrics extraction failed. Error:`, err.message || err);
-    metrics = {
-      brightness: 60,
-      saturation: 45,
-      temperature: "neutral",
-      palette: ["#18181b", "#3f3f46", "#e4e4e7"],
-      sharpness: 80
-    };
-    imageDoc.attributes = metrics;
-  }
 
+  // 1. Objective quality + colour/lighting metrics from real pixels. This drives the
+  //    score; if it throws the job is marked failed (no fabricated scores).
+  const metrics = await extractImageMetrics(imageDoc.cloudinaryUrl);
+  imageDoc.attributes = {
+    brightness: metrics.brightness,
+    contrast: metrics.contrast,
+    saturation: metrics.saturation,
+    colorfulness: metrics.colorfulness,
+    temperature: metrics.temperature,
+    palette: metrics.palette,
+    sharpness: metrics.sharpness,
+  };
+  imageDoc.qualityScore = metrics.qualityScore;
+  console.log(`[Queue] Quality score for ${imageDoc.filename}: ${metrics.qualityScore}`);
+
+  // 2. Best-effort enrichment: tags + object detection. These degrade to empty when
+  //    HF serverless is unavailable rather than failing the job or inventing data.
   let imageBuffer: Buffer | null = null;
   try {
-    // Fetch image binary buffer from Cloudinary URL
-    console.log(`[Queue] Fetching image binary from Cloudinary...`);
     const imgRes = await fetch(imageDoc.cloudinaryUrl);
-    if (!imgRes.ok) {
-      throw new Error(`Failed to fetch image from Cloudinary: ${imgRes.statusText}`);
-    }
-    const arrayBuffer = await imgRes.arrayBuffer();
-    imageBuffer = Buffer.from(arrayBuffer);
+    if (imgRes.ok) imageBuffer = Buffer.from(await imgRes.arrayBuffer());
+    else console.warn(`[Queue] Could not fetch image binary: ${imgRes.status} ${imgRes.statusText}`);
   } catch (err: any) {
-    console.error(`[Queue] Error fetching image binary:`, err.message || err);
+    console.warn(`[Queue] Error fetching image binary for enrichment:`, err.message || err);
   }
 
-  // A. Aesthetic Scoring (Base score)
-  let baseScore = 6.0;
   if (imageBuffer) {
     try {
-      console.log(`[Queue] Querying Hugging Face for aesthetic scoring...`);
-      const aestheticScore = await queryAestheticScore(imageBuffer);
-      baseScore = aestheticScore;
-      console.log(`[Queue] Baseline Aesthetic score for ${imageDoc.filename}: ${aestheticScore}`);
+      imageDoc.tags = await queryImageTags(imageBuffer);
     } catch (err: any) {
-      console.warn(`[Queue] HF aesthetic scoring failed. Falling back to local scoring. Error:`, err.message || err);
-      baseScore = calculateFallbackAestheticScore(imageDoc.filename, imageDoc.fileSize);
+      console.warn(`[Queue] Tagging unavailable:`, err.message || err);
+      imageDoc.tags = [];
     }
+    imageDoc.objects = await queryObjectDetection(imageBuffer); // already returns [] on failure
   } else {
-    baseScore = calculateFallbackAestheticScore(imageDoc.filename, imageDoc.fileSize);
-  }
-
-  // Calculate penalties based on technical qualities
-  let exposurePenalty = 0;
-  let blurPenalty = 0;
-  let oversaturationPenalty = 0;
-
-  const brightness = metrics.brightness ?? 50;
-  const sharpness = metrics.sharpness ?? 80;
-  const saturation = metrics.saturation ?? 50;
-
-  // Exposure Penalty:
-  // Under-exposed (dark): brightness < 25
-  if (brightness < 25) {
-    exposurePenalty = (25 - brightness) * 0.12; // brightness=10 -> penalty=1.8
-  }
-  // Over-exposed (blown out): brightness > 85
-  else if (brightness > 85) {
-    exposurePenalty = (brightness - 85) * 0.15; // brightness=95 -> penalty=1.5
-  }
-
-  // Blur/Motion Penalty:
-  // Sharpness < 35 indicates blur or very flat textures
-  if (sharpness < 35) {
-    blurPenalty = ((35 - sharpness) / 35) * 4.0; // sharpness=10 -> penalty=2.85
-  }
-
-  // Oversaturation Penalty:
-  // Saturation > 90 indicates neon/artificial artifacts
-  if (saturation > 90) {
-    oversaturationPenalty = (saturation - 90) * 0.05; // max 0.5
-  }
-
-  // Apply penalties to compute final Quality Score
-  const adjustedScore = baseScore - exposurePenalty - blurPenalty - oversaturationPenalty;
-  imageDoc.qualityScore = Math.max(1.0, Math.min(10.0, Math.round(adjustedScore * 10) / 10));
-  console.log(`[Queue] Final Refined Quality Score for ${imageDoc.filename}: ${imageDoc.qualityScore} (Base: ${baseScore}, ExposurePen: -${exposurePenalty.toFixed(2)}, BlurPen: -${blurPenalty.toFixed(2)}, SaturationPen: -${oversaturationPenalty.toFixed(2)})`);
-
-  // B. Image Tagging (RAM++ / fallback classification models)
-  if (imageBuffer) {
-    try {
-      console.log(`[Queue] Querying Hugging Face for image tagging...`);
-      const tags = await queryImageTags(imageBuffer);
-      imageDoc.tags = tags;
-      console.log(`[Queue] Tags for ${imageDoc.filename}:`, tags);
-    } catch (err: any) {
-      console.warn(`[Queue] HF image tagging failed. Falling back to filename parser. Error:`, err.message || err);
-      const fallbackTags = parseFallbackTags(imageDoc.filename);
-      imageDoc.tags = fallbackTags;
-    }
-  } else {
-    const fallbackTags = parseFallbackTags(imageDoc.filename);
-    imageDoc.tags = fallbackTags;
-  }
-
-  // C. Object Detection (bounding boxes)
-  if (imageBuffer) {
-    try {
-      console.log(`[Queue] Querying Hugging Face for object detection...`);
-      const objects = await queryObjectDetection(imageBuffer);
-      imageDoc.objects = objects;
-      console.log(`[Queue] Object detection for ${imageDoc.filename} returned ${objects.length} objects.`);
-    } catch (err: any) {
-      console.warn(`[Queue] HF object detection failed. Error:`, err.message || err);
-      imageDoc.objects = [];
-    }
-  } else {
+    imageDoc.tags = [];
     imageDoc.objects = [];
   }
 }

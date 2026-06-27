@@ -1,215 +1,207 @@
-/**
- * Helper to parse color hex code back into RGB components.
- */
-function hexToRgb(hex: string): { r: number; g: number; b: number } {
-  const r = parseInt(hex.substring(1, 3), 16);
-  const g = parseInt(hex.substring(3, 5), 16);
-  const b = parseInt(hex.substring(5, 7), 16);
-  return { r, g, b };
-}
+// Objective image-quality analysis from raw pixels.
+// We pull a small uncompressed BMP straight from Cloudinary (no decode library
+// needed) and compute lighting, colour and focus metrics, then a transparent score
+// that ranks images for curation (sharp + well-exposed + colourful = higher).
+//
+// ponytail: true learned NR-IQA (MUSIQ/BRISQUE/NIMA) needs a Python/GPU service and
+// isn't available on HF serverless, so we measure the objective factors directly.
+// Variance-of-Laplacian is content-dependent (a legitimately smooth scene reads as
+// soft); the knobs below are the calibration handles if scores drift in practice.
 
-/**
- * Helper to compute color distance (Manhattan distance in RGB space).
- */
-function getColorDistance(c1: string, c2: string): number {
-  const rgb1 = hexToRgb(c1);
-  const rgb2 = hexToRgb(c2);
-  return Math.abs(rgb1.r - rgb2.r) + Math.abs(rgb1.g - rgb2.g) + Math.abs(rgb1.b - rgb2.b);
-}
+const ANALYZE_DIM = 256; // max edge of the analysis thumbnail
+const SHARP_VAR_FULL = 700; // Laplacian variance that maps to 100% sharpness
+const WEIGHTS = { sharpness: 0.45, exposure: 0.35, color: 0.12, contrast: 0.08 };
 
-/**
- * Extracts technical image metrics (brightness, saturation, temperature, and palette)
- * by requesting a tiny 20x20 BMP thumbnail from Cloudinary and parsing its binary buffer.
- * 
- * @param cloudinaryUrl The secure Cloudinary delivery URL of the image.
- * @returns A promise resolving to an object matching the attributes schema.
- */
-export async function extractImageMetrics(cloudinaryUrl: string): Promise<{
-  brightness: number;
-  saturation: number;
+export interface ImageMetrics {
+  brightness: number; // 0-100 mean luminance
+  contrast: number; // 0-100 luminance spread
+  saturation: number; // 0-100 mean chroma
+  colorfulness: number; // 0-100 Hasler-Süsstrunk colourfulness
   temperature: "warm" | "cool" | "neutral";
   palette: string[];
-  sharpness: number;
-}> {
-  try {
-    console.log(`[Metrics] Extracting metrics for: ${cloudinaryUrl}`);
+  sharpness: number; // 0-100 variance-of-Laplacian
+  qualityScore: number; // 1-10 weighted objective quality
+}
 
-    // 1. Transform Cloudinary URL to request a 20x20 BMP thumbnail
-    // Inserting w_20,h_20,c_scale,f_bmp transformation parameters
-    let bmpUrl = cloudinaryUrl;
-    if (cloudinaryUrl.includes("/upload/")) {
-      bmpUrl = cloudinaryUrl.replace("/upload/", "/upload/w_20,h_20,c_scale,f_bmp/");
-    } else {
-      console.warn("[Metrics] URL does not contain standard /upload/ folder. Requesting original format.");
+const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+const toHex = (v: number) => clamp(Math.round(v), 0, 255).toString(16).padStart(2, "0");
+
+function hexToRgb(hex: string) {
+  return { r: parseInt(hex.slice(1, 3), 16), g: parseInt(hex.slice(3, 5), 16), b: parseInt(hex.slice(5, 7), 16) };
+}
+function colorDistance(a: string, b: string) {
+  const x = hexToRgb(a), y = hexToRgb(b);
+  return Math.abs(x.r - y.r) + Math.abs(x.g - y.g) + Math.abs(x.b - y.b);
+}
+
+/** Parse a 24/32-bit BMP into a flat luminance grid + raw channel arrays. */
+function parseBmp(buffer: Buffer) {
+  if (buffer[0] !== 0x42 || buffer[1] !== 0x4d) throw new Error("Invalid BMP signature.");
+  const dataOffset = buffer.readUInt32LE(10);
+  const width = buffer.readInt32LE(18);
+  const height = Math.abs(buffer.readInt32LE(22)); // negative height = top-down; irrelevant to our stats
+  const bpp = buffer.readUInt16LE(28);
+  if (bpp !== 24 && bpp !== 32) throw new Error(`Unsupported BMP depth: ${bpp}-bit`);
+  if (width <= 0 || height <= 0) throw new Error("Invalid BMP dimensions.");
+
+  const bytesPP = bpp / 8;
+  const rowSize = Math.floor((bpp * width + 31) / 32) * 4; // rows padded to 4-byte boundary
+  const n = width * height;
+  const lum = new Float64Array(n);
+  const R = new Float64Array(n), G = new Float64Array(n), B = new Float64Array(n);
+
+  for (let y = 0; y < height; y++) {
+    const rowStart = dataOffset + y * rowSize;
+    for (let x = 0; x < width; x++) {
+      const p = rowStart + x * bytesPP;
+      if (p + 2 >= buffer.length) continue;
+      const b = buffer[p], g = buffer[p + 1], r = buffer[p + 2];
+      const i = y * width + x;
+      R[i] = r; G[i] = g; B[i] = b;
+      lum[i] = 0.299 * r + 0.587 * g + 0.114 * b;
     }
-
-    console.log(`[Metrics] Fetching micro BMP thumbnail from: ${bmpUrl}`);
-    const res = await fetch(bmpUrl);
-    if (!res.ok) {
-      throw new Error(`Failed to fetch thumbnail BMP: ${res.statusText}`);
-    }
-
-    const arrayBuffer = await res.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-
-    // Verify BMP header: 'BM' (0x42, 0x4D)
-    if (buffer[0] !== 0x42 || buffer[1] !== 0x4d) {
-      throw new Error("Invalid BMP file signature (missing 'BM').");
-    }
-
-    // Read pixel offset from header (byte 10)
-    const dataOffset = buffer.readUInt32LE(10);
-    
-    let brightnessSum = 0;
-    let saturationSum = 0;
-    let warmPixels = 0;
-    let coolPixels = 0;
-    let totalProcessed = 0;
-
-    const colorBins: Record<string, number> = {};
-    const luminanceGrid: number[] = [];
-
-    // Loop through pixels. 24-bit BMP contains BGR byte triplets.
-    // Width = 20 pixels. Row size = 20 * 3 = 60 bytes (multiple of 4, so no row padding)
-    for (let i = dataOffset; i < buffer.length; i += 3) {
-      if (i + 2 >= buffer.length) break;
-
-      const b = buffer[i];
-      const g = buffer[i + 1];
-      const r = buffer[i + 2];
-
-      totalProcessed++;
-
-      // A. Brightness (Luminance formula)
-      const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
-      brightnessSum += luminance;
-      luminanceGrid.push(luminance);
-
-      // B. Saturation
-      const max = Math.max(r, g, b);
-      const min = Math.min(r, g, b);
-      const chroma = max - min;
-      saturationSum += chroma;
-
-      // C. Temperature tones count
-      // Warm: red/orange/yellow (R > B + 15)
-      // Cool: blue/cyan (B > R + 15)
-      if (r > b + 15) {
-        warmPixels++;
-      } else if (b > r + 15) {
-        coolPixels++;
-      }
-
-      // D. Group colors into 32-value bins (creating a clean palette)
-      const binR = Math.min(255, Math.max(0, Math.round(r / 32) * 32));
-      const binG = Math.min(255, Math.max(0, Math.round(g / 32) * 32));
-      const binB = Math.min(255, Math.max(0, Math.round(b / 32) * 32));
-      
-      const hex = "#" + [binR, binG, binB].map(v => {
-        const hexStr = v.toString(16);
-        return hexStr.length === 1 ? "0" + hexStr : hexStr;
-      }).join("");
-
-      colorBins[hex] = (colorBins[hex] || 0) + 1;
-    }
-
-    if (totalProcessed === 0) {
-      throw new Error("No pixels processed from BMP buffer.");
-    }
-
-    // Compute averages
-    const brightness = Math.round((brightnessSum / totalProcessed / 255) * 100);
-    const saturation = Math.round((saturationSum / totalProcessed / 255) * 100);
-
-    // Compute sharpness (adjacent pixel luminance differences)
-    let totalGradient = 0;
-    let comparisons = 0;
-    for (let y = 0; y < 20; y++) {
-      for (let x = 0; x < 20; x++) {
-        const idx = y * 20 + x;
-        const val = luminanceGrid[idx];
-        if (val === undefined) continue;
-
-        if (x < 19) {
-          const rightVal = luminanceGrid[idx + 1];
-          if (rightVal !== undefined) {
-            totalGradient += Math.abs(val - rightVal);
-            comparisons++;
-          }
-        }
-        if (y < 19) {
-          const downVal = luminanceGrid[idx + 20];
-          if (downVal !== undefined) {
-            totalGradient += Math.abs(val - downVal);
-            comparisons++;
-          }
-        }
-      }
-    }
-    const averageGradient = comparisons > 0 ? (totalGradient / comparisons) : 0;
-    // Map to 0-100% where average gradient >= 20 is fully sharp
-    const sharpness = Math.min(100, Math.round((averageGradient / 20) * 100));
-
-    // Classify temperature
-    let temperature: "warm" | "cool" | "neutral" = "neutral";
-    const warmRatio = warmPixels / (coolPixels || 1);
-    const coolRatio = coolPixels / (warmPixels || 1);
-
-    if (warmPixels > coolPixels && warmRatio > 1.25) {
-      temperature = "warm";
-    } else if (coolPixels > warmPixels && coolRatio > 1.25) {
-      temperature = "cool";
-    }
-
-    // Select dominant color palette with color spacing to avoid near-duplicates
-    const sortedBins = Object.entries(colorBins).sort((a, b) => b[1] - a[1]);
-    const palette: string[] = [];
-
-    for (const [color] of sortedBins) {
-      if (palette.length >= 4) break;
-
-      // Check distance from already selected colors
-      const isTooSimilar = palette.some(selectedColor => getColorDistance(color, selectedColor) < 65);
-      if (!isTooSimilar) {
-        palette.push(color);
-      }
-    }
-
-    // If we have fewer than 4 colors due to filtering, fill remaining from top sorted list
-    if (palette.length < 4) {
-      for (const [color] of sortedBins) {
-        if (palette.length >= 4) break;
-        if (!palette.includes(color)) {
-          palette.push(color);
-        }
-      }
-    }
-
-    console.log(`[Metrics] Calculated metrics for ${cloudinaryUrl.split("/").pop()}:`, {
-      brightness,
-      saturation,
-      temperature,
-      palette,
-      sharpness
-    });
-
-    return {
-      brightness,
-      saturation,
-      temperature,
-      palette,
-      sharpness
-    };
-
-  } catch (err: any) {
-    console.error(`[Metrics] Metric extraction failed:`, err.message || err);
-    // Return high-quality generic fallbacks if something errors out
-    return {
-      brightness: 65,
-      saturation: 45,
-      temperature: "neutral",
-      palette: ["#18181b", "#3f3f46", "#71717a", "#e4e4e7"],
-      sharpness: 80
-    };
   }
+  return { width, height, lum, R, G, B, n };
+}
+
+function computeMetricsFromPixels(px: ReturnType<typeof parseBmp>): ImageMetrics {
+  const { width, height, lum, R, G, B, n } = px;
+
+  let sumL = 0, sumL2 = 0, sumChroma = 0, crushed = 0, blown = 0;
+  let sumR = 0, sumBch = 0;
+  let sumRg = 0, sumYb = 0, sumRg2 = 0, sumYb2 = 0;
+  const bins: Record<string, number> = {};
+
+  for (let i = 0; i < n; i++) {
+    const r = R[i], g = G[i], b = B[i], L = lum[i];
+    sumL += L; sumL2 += L * L;
+    sumR += r; sumBch += b;
+    sumChroma += Math.max(r, g, b) - Math.min(r, g, b);
+    if (L <= 5) crushed++; else if (L >= 250) blown++;
+    const rg = r - g, yb = 0.5 * (r + g) - b;
+    sumRg += rg; sumYb += yb; sumRg2 += rg * rg; sumYb2 += yb * yb;
+    const hex = "#" + toHex(Math.round(r / 32) * 32) + toHex(Math.round(g / 32) * 32) + toHex(Math.round(b / 32) * 32);
+    bins[hex] = (bins[hex] || 0) + 1;
+  }
+
+  const meanL = sumL / n;
+  const stdL = Math.sqrt(Math.max(0, sumL2 / n - meanL * meanL));
+  const brightness = clamp(Math.round((meanL / 255) * 100), 0, 100);
+  const contrast = clamp(Math.round((stdL / 64) * 100), 0, 100);
+  const saturation = clamp(Math.round((sumChroma / n / 255) * 100), 0, 100);
+
+  // Hasler-Süsstrunk colourfulness (std + 0.3*mean of the opponent channels).
+  const meanRg = sumRg / n, meanYb = sumYb / n;
+  const stdRg = Math.sqrt(Math.max(0, sumRg2 / n - meanRg * meanRg));
+  const stdYb = Math.sqrt(Math.max(0, sumYb2 / n - meanYb * meanYb));
+  const C = Math.sqrt(stdRg * stdRg + stdYb * stdYb) + 0.3 * Math.sqrt(meanRg * meanRg + meanYb * meanYb);
+  const colorfulness = clamp(Math.round(C), 0, 100);
+
+  const meanR = sumR / n, meanB = sumBch / n;
+  const temperature: "warm" | "cool" | "neutral" =
+    meanR > meanB + 10 ? "warm" : meanB > meanR + 10 ? "cool" : "neutral";
+
+  // Sharpness: variance of the 4-neighbour Laplacian on luminance (interior pixels).
+  let lapSum = 0, lapSum2 = 0, lapN = 0;
+  for (let y = 1; y < height - 1; y++) {
+    for (let x = 1; x < width - 1; x++) {
+      const i = y * width + x;
+      const lap = 4 * lum[i] - lum[i - 1] - lum[i + 1] - lum[i - width] - lum[i + width];
+      lapSum += lap; lapSum2 += lap * lap; lapN++;
+    }
+  }
+  const lapVar = lapN > 0 ? Math.max(0, lapSum2 / lapN - (lapSum / lapN) ** 2) : 0;
+  const sharpness = clamp(Math.round((lapVar / SHARP_VAR_FULL) * 100), 0, 100);
+
+  // Dominant palette: most frequent colour bins, spaced to avoid near-duplicates.
+  const sorted = Object.entries(bins).sort((a, b) => b[1] - a[1]).map((e) => e[0]);
+  const palette: string[] = [];
+  for (const c of sorted) {
+    if (palette.length >= 4) break;
+    if (!palette.some((s) => colorDistance(c, s) < 65)) palette.push(c);
+  }
+  for (const c of sorted) { if (palette.length >= 4) break; if (!palette.includes(c)) palette.push(c); }
+
+  const qualityScore = scoreQuality({ brightness, contrast, saturation, colorfulness, sharpness, crushed: crushed / n, blown: blown / n });
+  return { brightness, contrast, saturation, colorfulness, temperature, palette, sharpness, qualityScore };
+}
+
+/** Transparent 1-10 quality from the objective metrics: blur, lighting, colour. */
+function scoreQuality(m: {
+  brightness: number; contrast: number; saturation: number;
+  colorfulness: number; sharpness: number; crushed: number; blown: number;
+}): number {
+  const sharpnessScore = m.sharpness / 10;
+
+  let exposure = 10;
+  exposure -= Math.max(0, Math.abs(m.brightness - 55) - 15) * 0.12; // ideal ~40-70
+  exposure -= Math.min(3, (m.crushed + m.blown) * 100 * 0.15); // blown/crushed pixels
+  if (m.contrast < 20) exposure -= (20 - m.contrast) * 0.1; // flat / hazy
+  exposure = clamp(exposure, 0, 10);
+
+  let color = clamp(2 + m.colorfulness * 0.08, 0, 10);
+  if (m.saturation > 92) color -= (m.saturation - 92) * 0.2; // neon / clipped colour
+  color = clamp(color, 0, 10);
+
+  const contrast = clamp(m.contrast / 8, 0, 10);
+
+  const q =
+    sharpnessScore * WEIGHTS.sharpness +
+    exposure * WEIGHTS.exposure +
+    color * WEIGHTS.color +
+    contrast * WEIGHTS.contrast;
+  return clamp(Math.round(q * 10) / 10, 1, 10);
+}
+
+export async function extractImageMetrics(cloudinaryUrl: string): Promise<ImageMetrics> {
+  // c_limit keeps aspect ratio and never upscales; f_bmp gives us raw pixels.
+  const bmpUrl = cloudinaryUrl.includes("/upload/")
+    ? cloudinaryUrl.replace("/upload/", `/upload/c_limit,w_${ANALYZE_DIM},h_${ANALYZE_DIM},f_bmp/`)
+    : cloudinaryUrl;
+
+  const res = await fetch(bmpUrl);
+  if (!res.ok) throw new Error(`Failed to fetch analysis BMP (${res.status} ${res.statusText})`);
+  const metrics = computeMetricsFromPixels(parseBmp(Buffer.from(await res.arrayBuffer())));
+  console.log(`[Metrics] ${cloudinaryUrl.split("/").pop()}:`, metrics);
+  return metrics;
+}
+
+// --- self-check: `node --experimental-strip-types -e "import('./lib/metrics.ts').then(m=>m.demo())"`
+function buildBmp(width: number, height: number, pixel: (x: number, y: number) => [number, number, number]): Buffer {
+  const rowSize = Math.floor((24 * width + 31) / 32) * 4;
+  const buf = Buffer.alloc(54 + rowSize * height);
+  buf.write("BM", 0);
+  buf.writeUInt32LE(buf.length, 2);
+  buf.writeUInt32LE(54, 10);
+  buf.writeUInt32LE(40, 14);
+  buf.writeInt32LE(width, 18);
+  buf.writeInt32LE(height, 22);
+  buf.writeUInt16LE(1, 26);
+  buf.writeUInt16LE(24, 28);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const [r, g, b] = pixel(x, y);
+      const p = 54 + y * rowSize + x * 3;
+      buf[p] = clamp(b, 0, 255); buf[p + 1] = clamp(g, 0, 255); buf[p + 2] = clamp(r, 0, 255);
+    }
+  }
+  return buf;
+}
+
+export function demo() {
+  const D = 64;
+  const m = (fn: (x: number, y: number) => [number, number, number]) => computeMetricsFromPixels(parseBmp(buildBmp(D, D, fn)));
+  const sharp = m((x, y) => { const v = ((x + y) % 2) * 255; return [v, v, v]; }); // checkerboard
+  const flat = m(() => [128, 128, 128]); // uniform grey
+  const dark = m(() => [8, 8, 8]); // underexposed
+  const blown = m(() => [252, 252, 252]); // overexposed
+  const warm = m(() => [200, 120, 60]);
+  const cool = m(() => [60, 120, 200]);
+
+  console.assert(sharp.sharpness > flat.sharpness, "sharp should beat flat on sharpness");
+  console.assert(sharp.qualityScore > flat.qualityScore, "sharp should score higher than flat");
+  console.assert(dark.qualityScore < flat.qualityScore, "underexposed should be penalised");
+  console.assert(blown.brightness > 95 && dark.brightness < 10, "brightness tracks exposure");
+  console.assert(warm.temperature === "warm" && cool.temperature === "cool", "temperature classification");
+  console.log("metrics demo OK", { sharp: sharp.qualityScore, flat: flat.qualityScore, dark: dark.qualityScore, blown: blown.qualityScore });
 }

@@ -13,7 +13,9 @@ export interface IImage extends Document {
   qualityScore?: number;
   attributes?: {
     brightness?: number;
+    contrast?: number;
     saturation?: number;
+    colorfulness?: number;
     temperature?: "warm" | "cool" | "neutral";
     palette?: string[];
     sharpness?: number;
@@ -47,7 +49,9 @@ const ImageSchema: Schema = new Schema(
     qualityScore: { type: Number },
     attributes: {
       brightness: { type: Number },
+      contrast: { type: Number },
       saturation: { type: Number },
+      colorfulness: { type: Number },
       temperature: { type: String, enum: ["warm", "cool", "neutral"] },
       palette: { type: [String] },
       sharpness: { type: Number },

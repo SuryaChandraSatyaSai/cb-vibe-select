@@ -36,7 +36,9 @@ export interface ImageRecord {
   qualityScore?: number;
   attributes?: {
     brightness?: number;
+    contrast?: number;
     saturation?: number;
+    colorfulness?: number;
     temperature?: "warm" | "cool" | "neutral";
     palette?: string[];
     sharpness?: number;
@@ -364,8 +366,8 @@ export default function ImageGallery({ images, loading, onResetComplete }: Image
                 >
                   <option value="date_desc">Upload Date (Newest First)</option>
                   <option value="date_asc">Upload Date (Oldest First)</option>
-                  <option value="aesthetics_desc">Aesthetics Rating (Highest First) ★</option>
-                  <option value="aesthetics_asc">Aesthetics Rating (Lowest First)</option>
+                  <option value="aesthetics_desc">Quality Score (Highest First) ★</option>
+                  <option value="aesthetics_asc">Quality Score (Lowest First)</option>
                 </select>
               </div>
 
@@ -895,7 +897,7 @@ export default function ImageGallery({ images, loading, onResetComplete }: Image
                   {typeof activeLightboxImage.qualityScore === "number" && (
                     <div className="border border-zinc-200 rounded-xl p-3 bg-zinc-50/50 shadow-inner">
                       <div className="flex items-center justify-between mb-1.5">
-                        <span className="text-[10px] uppercase font-bold text-zinc-400 block">Aesthetic Score</span>
+                        <span className="text-[10px] uppercase font-bold text-zinc-400 block">Quality Score</span>
                         <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded uppercase tracking-wider border ${
                           activeLightboxImage.qualityScore >= 7.0
                             ? "bg-emerald-50 text-emerald-700 border-emerald-200"
@@ -986,6 +988,38 @@ export default function ImageGallery({ images, loading, onResetComplete }: Image
                             <div
                               className="bg-violet-500 h-full rounded-full transition-all duration-500"
                               style={{ width: `${activeLightboxImage.attributes.saturation}%` }}
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Contrast */}
+                      {typeof activeLightboxImage.attributes.contrast === "number" && (
+                        <div>
+                          <div className="flex justify-between text-[11px] font-medium text-zinc-650 mb-1">
+                            <span>Contrast (Dynamic Range)</span>
+                            <span className="font-bold text-zinc-800">{activeLightboxImage.attributes.contrast}%</span>
+                          </div>
+                          <div className="w-full bg-zinc-200 h-1.5 rounded-full overflow-hidden border border-zinc-200/40">
+                            <div
+                              className="bg-sky-500 h-full rounded-full transition-all duration-500"
+                              style={{ width: `${activeLightboxImage.attributes.contrast}%` }}
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Colorfulness */}
+                      {typeof activeLightboxImage.attributes.colorfulness === "number" && (
+                        <div>
+                          <div className="flex justify-between text-[11px] font-medium text-zinc-650 mb-1">
+                            <span>Colorfulness (Vibrancy)</span>
+                            <span className="font-bold text-zinc-800">{activeLightboxImage.attributes.colorfulness}%</span>
+                          </div>
+                          <div className="w-full bg-zinc-200 h-1.5 rounded-full overflow-hidden border border-zinc-200/40">
+                            <div
+                              className="bg-pink-500 h-full rounded-full transition-all duration-500"
+                              style={{ width: `${activeLightboxImage.attributes.colorfulness}%` }}
                             />
                           </div>
                         </div>

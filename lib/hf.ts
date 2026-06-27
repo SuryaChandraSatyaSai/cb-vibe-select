@@ -1,247 +1,103 @@
 const HF_TOKEN = process.env.HF_TOKEN || process.env.HUGGINGFACE_API_TOKEN || "";
 
-/**
- * Queries Hugging Face Inference API for image aesthetic scoring.
- * 
- * Attempts to query:
- * 1. somepago/AestheticSigLIP (custom SigLIP-based aesthetic model)
- * 2. cafeai/cafe_aesthetic (fallback image classification model, mapped to 1-10)
- * 
- * @param imageBuffer The binary buffer of the image.
- * @returns A promise resolving to a score between 1.0 and 10.0.
- */
-export async function queryAestheticScore(imageBuffer: Buffer): Promise<number> {
-  const models = [
-    {
-      id: "somepago/AestheticSigLIP",
-      parse: (data: any): number => {
-        // Handle various potential output shapes of aesthetic predictor regression heads
-        if (Array.isArray(data)) {
-          const first = data[0];
-          if (first && typeof first.score === "number") {
-            return first.score;
-          }
-          if (first && typeof first.label === "string" && !isNaN(parseFloat(first.label))) {
-            return parseFloat(first.label);
-          }
-        } else if (typeof data === "number") {
-          return data;
-        } else if (data && typeof data.score === "number") {
-          return data.score;
-        }
-        throw new Error("Could not parse numeric score from AestheticSigLIP output.");
-      }
-    },
-    {
-      id: "cafeai/cafe_aesthetic",
-      parse: (data: any): number => {
-        // cafeai/cafe_aesthetic is a classifier returning:
-        // [{ label: "aesthetic", score: 0.85 }, { label: "not_aesthetic", score: 0.15 }]
-        if (Array.isArray(data)) {
-          const aestheticObj = data.find((item: any) => item.label === "aesthetic");
-          if (aestheticObj && typeof aestheticObj.score === "number") {
-            // Map probability [0, 1] to a rating [1, 10]
-            const score = aestheticObj.score * 9 + 1;
-            return Math.round(score * 10) / 10;
-          }
-        }
-        throw new Error("Could not parse aesthetic probability from cafe_aesthetic output.");
-      }
-    }
-  ];
+// Legacy api-inference.huggingface.co was retired (late 2025) → use the router.
+// Best-effort only: image models are often cold/unavailable on serverless, so callers
+// must tolerate failure. The quality score does NOT depend on these (see lib/metrics.ts);
+// tags + objects are enrichment that degrade to empty, never to fabricated data.
+const HF_BASE = "https://router.huggingface.co/hf-inference/models";
 
-  let lastError: any = null;
+// The router enforces a real image content-type (octet-stream is rejected for
+// object-detection). Sniff it from the buffer's magic bytes.
+function imageMime(buf: Buffer): string {
+  if (buf[0] === 0xff && buf[1] === 0xd8) return "image/jpeg";
+  if (buf[0] === 0x89 && buf[1] === 0x50) return "image/png";
+  if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46) return "image/gif";
+  if (buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46) return "image/webp";
+  return "image/jpeg";
+}
 
-  for (const model of models) {
-    try {
-      console.log(`[HF API] Querying aesthetic score model: ${model.id}...`);
-      const url = `https://api-inference.huggingface.co/models/${model.id}`;
-      const headers: Record<string, string> = {
-        "Content-Type": "application/octet-stream",
-      };
-      if (HF_TOKEN) {
-        headers["Authorization"] = `Bearer ${HF_TOKEN}`;
-      }
+async function hfInfer(modelId: string, imageBuffer: Buffer): Promise<any> {
+  const headers: Record<string, string> = { "Content-Type": imageMime(imageBuffer) };
+  if (HF_TOKEN) headers["Authorization"] = `Bearer ${HF_TOKEN}`;
 
-      const response = await fetch(url, {
-        headers,
-        method: "POST",
-        body: new Uint8Array(imageBuffer),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`HF Inference API returned ${response.status}: ${errorText}`);
-      }
-
-      const data = await response.json();
-      console.log(`[HF API] Model ${model.id} returned data:`, JSON.stringify(data).substring(0, 150));
-
-      const score = model.parse(data);
-      if (typeof score === "number" && !isNaN(score)) {
-        return Math.max(1.0, Math.min(10.0, score));
-      }
-    } catch (err: any) {
-      console.warn(`[HF API] Warning: Model ${model.id} request failed:`, err.message || err);
-      lastError = err;
-    }
+  const response = await fetch(`${HF_BASE}/${modelId}`, {
+    headers,
+    method: "POST",
+    body: new Uint8Array(imageBuffer),
+  });
+  if (!response.ok) {
+    throw new Error(`HF Inference API returned ${response.status}: ${await response.text()}`);
   }
-
-  throw lastError || new Error("All Hugging Face aesthetic models failed to execute.");
+  return response.json();
 }
 
 /**
- * Queries Hugging Face Inference API for image tagging.
- * 
- * Attempts to query:
- * 1. xinyu1205/recognize-anything-plus-model (RAM++)
- * 2. google/vit-base-patch16-224 (fallback classification)
- * 3. microsoft/resnet-50 (fallback classification)
- * 
- * @param imageBuffer The binary buffer of the image.
- * @returns A promise resolving to an array of string tags.
+ * Image tagging. Tries RAM++ then standard classifiers; returns [] only if all fail
+ * (the caller logs that and stores no tags rather than inventing them).
  */
 export async function queryImageTags(imageBuffer: Buffer): Promise<string[]> {
+  // ponytail: RAM++ (xinyu1205/recognize-anything-plus-model) isn't served by any HF
+  // inference provider, so it's omitted — these classifiers are live on hf-inference.
   const models = [
-    {
-      id: "xinyu1205/recognize-anything-plus-model",
-      parse: (data: any): string[] => {
-        if (Array.isArray(data)) {
-          return data
-            .filter((item: any) => typeof item.label === "string" && (item.score === undefined || item.score > 0.12))
-            .map((item: any) => item.label.toLowerCase().trim());
-        }
-        if (typeof data === "string") {
-          return data.split(",").map(t => t.trim().toLowerCase()).filter(Boolean);
-        }
-        if (data && typeof data.tags === "string") {
-          return data.tags.split(",").map((t: string) => t.trim().toLowerCase()).filter(Boolean);
-        }
-        if (data && Array.isArray(data.tags)) {
-          return data.tags.map((t: any) => String(t).trim().toLowerCase()).filter(Boolean);
-        }
-        throw new Error("Could not parse tags from RAM++ output shape.");
-      }
-    },
-    {
-      id: "google/vit-base-patch16-224",
-      parse: (data: any): string[] => {
-        if (Array.isArray(data)) {
-          return data
-            .filter((item: any) => typeof item.label === "string" && (item.score === undefined || item.score > 0.12))
-            .map((item: any) => item.label.toLowerCase().trim());
-        }
-        throw new Error("Could not parse tags from ViT output shape.");
-      }
-    },
-    {
-      id: "microsoft/resnet-50",
-      parse: (data: any): string[] => {
-        if (Array.isArray(data)) {
-          return data
-            .filter((item: any) => typeof item.label === "string" && (item.score === undefined || item.score > 0.12))
-            .map((item: any) => item.label.toLowerCase().trim());
-        }
-        throw new Error("Could not parse tags from ResNet output shape.");
-      }
-    }
+    "google/vit-base-patch16-224",
+    "microsoft/resnet-50",
   ];
 
   let lastError: any = null;
-
-  for (const model of models) {
+  for (const id of models) {
     try {
-      console.log(`[HF API] Querying image tags model: ${model.id}...`);
-      const url = `https://api-inference.huggingface.co/models/${model.id}`;
-      const headers: Record<string, string> = {
-        "Content-Type": "application/octet-stream",
-      };
-      if (HF_TOKEN) {
-        headers["Authorization"] = `Bearer ${HF_TOKEN}`;
+      console.log(`[HF API] Querying image tags model: ${id}...`);
+      const data = await hfInfer(id, imageBuffer);
+
+      let tags: string[] = [];
+      if (Array.isArray(data)) {
+        tags = data
+          .filter((item: any) => typeof item.label === "string" && (item.score === undefined || item.score > 0.12))
+          .map((item: any) => item.label.toLowerCase().trim());
+      } else if (typeof data === "string") {
+        tags = data.split(",").map((t) => t.trim().toLowerCase());
+      } else if (data && typeof data.tags === "string") {
+        tags = data.tags.split(",").map((t: string) => t.trim().toLowerCase());
+      } else if (data && Array.isArray(data.tags)) {
+        tags = data.tags.map((t: any) => String(t).trim().toLowerCase());
       }
 
-      const response = await fetch(url, {
-        headers,
-        method: "POST",
-        body: new Uint8Array(imageBuffer),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`HF Inference API returned ${response.status}: ${errorText}`);
-      }
-
-      const data = await response.json();
-      console.log(`[HF API] Model ${model.id} returned tags data:`, JSON.stringify(data).substring(0, 150));
-
-      const tags = model.parse(data);
-      if (Array.isArray(tags) && tags.length > 0) {
-        // Remove duplicate tags, filter sub-commas or too long labels
-        const uniqueTags = Array.from(new Set(tags))
-          .map(t => t.split(",")[0].trim())
-          .filter(t => t.length > 0 && t.length < 30);
-        return uniqueTags;
-      }
+      const uniqueTags = Array.from(new Set(tags))
+        .map((t) => t.split(",")[0].trim())
+        .filter((t) => t.length > 0 && t.length < 30);
+      if (uniqueTags.length > 0) return uniqueTags;
     } catch (err: any) {
-      console.warn(`[HF API] Warning: Tag model ${model.id} failed:`, err.message || err);
+      console.warn(`[HF API] Tag model ${id} failed:`, err.message || err);
       lastError = err;
     }
   }
-
   throw lastError || new Error("All Hugging Face tagging models failed to execute.");
 }
 
 /**
- * Queries Hugging Face Inference API for object detection with bounding boxes.
- * 
- * Target model: facebook/detr-resnet-50 (DEtection TRansformer)
- * 
- * @param imageBuffer The binary buffer of the image.
- * @returns A promise resolving to an array of object labels, confidence scores, and bounding boxes.
+ * Object detection with bounding boxes (facebook/detr-resnet-50).
+ * Returns [] on any failure — bounding boxes are optional overlay data.
  */
 export async function queryObjectDetection(imageBuffer: Buffer): Promise<any[]> {
   try {
     console.log(`[HF API] Querying object detection model: facebook/detr-resnet-50...`);
-    const url = "https://api-inference.huggingface.co/models/facebook/detr-resnet-50";
-    const headers: Record<string, string> = {
-      "Content-Type": "application/octet-stream",
-    };
-    if (HF_TOKEN) {
-      headers["Authorization"] = `Bearer ${HF_TOKEN}`;
-    }
+    const data = await hfInfer("facebook/detr-resnet-50", imageBuffer);
+    if (!Array.isArray(data)) return [];
 
-    const response = await fetch(url, {
-      headers,
-      method: "POST",
-      body: new Uint8Array(imageBuffer),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`HF Inference API returned ${response.status}: ${errorText}`);
-    }
-
-    const data = await response.json();
-    console.log(`[HF API] Object detection returned:`, JSON.stringify(data).substring(0, 150));
-
-    if (Array.isArray(data)) {
-      // Filter out detections with confidence below 55% and ensure boxes exist
-      return data
-        .filter((item: any) => typeof item.score === "number" && item.score >= 0.55 && item.box)
-        .map((item: any) => ({
-          label: String(item.label).toLowerCase().trim(),
-          score: Math.round(item.score * 100) / 100,
-          box: {
-            xmin: Math.round(item.box.xmin),
-            ymin: Math.round(item.box.ymin),
-            xmax: Math.round(item.box.xmax),
-            ymax: Math.round(item.box.ymax)
-          }
-        }));
-    }
-    return [];
+    return data
+      .filter((item: any) => typeof item.score === "number" && item.score >= 0.55 && item.box)
+      .map((item: any) => ({
+        label: String(item.label).toLowerCase().trim(),
+        score: Math.round(item.score * 100) / 100,
+        box: {
+          xmin: Math.round(item.box.xmin),
+          ymin: Math.round(item.box.ymin),
+          xmax: Math.round(item.box.xmax),
+          ymax: Math.round(item.box.ymax),
+        },
+      }));
   } catch (err: any) {
-    console.warn("[HF API] Warning: Object detection request failed:", err.message || err);
+    console.warn("[HF API] Object detection failed:", err.message || err);
     return [];
   }
 }
