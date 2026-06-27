@@ -136,3 +136,53 @@ export async function DELETE() {
     );
   }
 }
+
+// POST /api/images - Reprocess / Re-analyze an image
+export async function POST(request: NextRequest) {
+  const session = await auth();
+  if (!session || !session.user || !session.user.email) {
+    return NextResponse.json(
+      { success: false, message: "Unauthorized. Please log in first." },
+      { status: 401 }
+    );
+  }
+
+  try {
+    await dbConnect();
+    const { imageId } = await request.json();
+    if (!imageId) {
+      return NextResponse.json(
+        { success: false, message: "Missing imageId parameter" },
+        { status: 400 }
+      );
+    }
+
+    const img = await ImageModel.findById(imageId);
+    if (!img) {
+      return NextResponse.json(
+        { success: false, message: "Image record not found" },
+        { status: 404 }
+      );
+    }
+
+    // Reset status to pending and clear errors
+    img.status = "pending";
+    img.analysisError = undefined;
+    await img.save();
+
+    // Trigger queue processing worker
+    triggerQueueProcessing();
+
+    return NextResponse.json({
+      success: true,
+      message: `Re-queued image ${img.filename} for analysis.`,
+      image: img
+    });
+  } catch (err: any) {
+    console.error("Error reprocessing image:", err);
+    return NextResponse.json(
+      { success: false, message: "Failed to reprocess image", error: err.message },
+      { status: 500 }
+    );
+  }
+}

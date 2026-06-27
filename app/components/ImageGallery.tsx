@@ -15,7 +15,9 @@ import {
   Info,
   Clock,
   AlertTriangle,
-  Target
+  Target,
+  SlidersHorizontal,
+  RotateCcw
 } from "lucide-react";
 
 export interface ImageRecord {
@@ -60,7 +62,15 @@ interface ImageGalleryProps {
 
 export default function ImageGallery({ images, loading, onResetComplete }: ImageGalleryProps) {
   const [collapsedDates, setCollapsedDates] = useState<Record<string, boolean>>({});
-  const [activeLightboxImage, setActiveLightboxImage] = useState<ImageRecord | null>(null);
+  const [activeLightboxImageRaw, setActiveLightboxImage] = useState<ImageRecord | null>(null);
+  const [reprocessing, setReprocessing] = useState<boolean>(false);
+  const [reprocessSuccessMessage, setReprocessSuccessMessage] = useState<string>("");
+  const [copiedUrl, setCopiedUrl] = useState<boolean>(false);
+
+  // Sync activeLightboxImage to get updates from parent array polling
+  const activeLightboxImage = activeLightboxImageRaw 
+    ? (images.find(img => img._id === activeLightboxImageRaw._id) || activeLightboxImageRaw) 
+    : null;
   const [clearing, setClearing] = useState<boolean>(false);
   
   // Object Detection overlays states
@@ -73,18 +83,130 @@ export default function ImageGallery({ images, loading, onResetComplete }: Image
     naturalHeight: number;
   } | null>(null);
 
-  // Group images by uploadDate
-  const groupedImages = images.reduce<Record<string, ImageRecord[]>>((acc, img) => {
-    const date = img.uploadDate || "Uncategorized";
-    if (!acc[date]) {
-      acc[date] = [];
-    }
-    acc[date].push(img);
-    return acc;
-  }, {});
+  // Filters & Sorting state
+  const [showFilters, setShowFilters] = useState<boolean>(false);
+  const [sortBy, setSortBy] = useState<string>("date_desc");
+  const [moodFilter, setMoodFilter] = useState<string>("all");
+  const [minBrightness, setMinBrightness] = useState<number>(0);
+  const [maxBrightness, setMaxBrightness] = useState<number>(100);
+  const [minSaturation, setMinSaturation] = useState<number>(0);
+  const [maxSaturation, setMaxSaturation] = useState<number>(100);
+  const [minSharpness, setMinSharpness] = useState<number>(0);
 
-  // Sort dates descending
-  const sortedDates = Object.keys(groupedImages).sort((a, b) => b.localeCompare(a));
+  const hasActiveFilters = 
+    moodFilter !== "all" ||
+    minBrightness > 0 ||
+    maxBrightness < 100 ||
+    minSaturation > 0 ||
+    maxSaturation < 100 ||
+    minSharpness > 0 ||
+    sortBy !== "date_desc";
+
+  const handleResetFilters = () => {
+    setSortBy("date_desc");
+    setMoodFilter("all");
+    setMinBrightness(0);
+    setMaxBrightness(100);
+    setMinSaturation(0);
+    setMaxSaturation(100);
+    setMinSharpness(0);
+  };
+
+  const handleReprocessImage = async (id: string) => {
+    setReprocessing(true);
+    setReprocessSuccessMessage("");
+    try {
+      const res = await fetch("/api/images", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageId: id })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setReprocessSuccessMessage("Re-queued for analysis!");
+        setTimeout(() => setReprocessSuccessMessage(""), 4000);
+      } else {
+        alert(data.message || "Failed to trigger analysis reprocessing.");
+      }
+    } catch (err) {
+      console.error("Failed to reprocess:", err);
+      alert("An error occurred while calling the reprocess API.");
+    } finally {
+      setReprocessing(false);
+    }
+  };
+
+  const handleCopyUrl = (url: string) => {
+    navigator.clipboard.writeText(url);
+    setCopiedUrl(true);
+    setTimeout(() => setCopiedUrl(false), 2000);
+  };
+
+  const getDownloadUrl = (url: string) => {
+    return url.replace("/image/upload/", "/image/upload/fl_attachment/");
+  };
+
+  // Compute filtered & sorted list of images
+  const filteredImages = images.filter((img) => {
+    // 1. Mood Filter
+    if (moodFilter !== "all" && img.attributes?.temperature !== moodFilter) {
+      return false;
+    }
+    // 2. Brightness Filter
+    const brightness = img.attributes?.brightness ?? 50;
+    if (brightness < minBrightness || brightness > maxBrightness) {
+      return false;
+    }
+    // 3. Saturation Filter
+    const saturation = img.attributes?.saturation ?? 50;
+    if (saturation < minSaturation || saturation > maxSaturation) {
+      return false;
+    }
+    // 4. Sharpness Filter
+    const sharpness = img.attributes?.sharpness ?? 80;
+    if (sharpness < minSharpness) {
+      return false;
+    }
+    return true;
+  });
+
+  const sortedImages = [...filteredImages].sort((a, b) => {
+    if (sortBy === "date_desc") {
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    }
+    if (sortBy === "date_asc") {
+      return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+    }
+    if (sortBy === "aesthetics_desc") {
+      return (b.qualityScore ?? 0) - (a.qualityScore ?? 0);
+    }
+    if (sortBy === "aesthetics_asc") {
+      return (a.qualityScore ?? 0) - (b.qualityScore ?? 0);
+    }
+    return 0;
+  });
+
+  const isDateGrouped = sortBy.startsWith("date");
+
+  // Group images by uploadDate
+  const groupedImages = isDateGrouped
+    ? sortedImages.reduce<Record<string, ImageRecord[]>>((acc, img) => {
+        const date = img.uploadDate || "Uncategorized";
+        if (!acc[date]) {
+          acc[date] = [];
+        }
+        acc[date].push(img);
+        return acc;
+      }, {})
+    : {};
+
+  // Sort dates descending or ascending
+  const sortedDates = isDateGrouped
+    ? Object.keys(groupedImages).sort((a, b) => {
+        if (sortBy === "date_desc") return b.localeCompare(a);
+        return a.localeCompare(b);
+      })
+    : [];
 
   const toggleDateCollapse = (date: string) => {
     setCollapsedDates((prev) => ({
@@ -171,41 +293,216 @@ export default function ImageGallery({ images, loading, onResetComplete }: Image
             <FolderOpen className="w-5 h-5 text-primary" />
             Media Asset Library
           </h2>
-          <p className="text-xs text-zinc-500 mt-0.5">
-            Displaying {images.length} images grouped by upload dates.
+          <p className="text-xs text-zinc-500 mt-0.5 font-medium">
+            Displaying {filteredImages.length} of {images.length} images.
           </p>
         </div>
         
-        <button
-          onClick={handleResetLibrary}
-          disabled={clearing}
-          className="flex items-center gap-2 px-3 py-1.5 border border-red-200 hover:border-red-300 bg-red-50 hover:bg-red-100 disabled:bg-zinc-100 text-red-600 disabled:text-zinc-400 text-xs font-bold rounded-lg transition-colors shadow-sm"
-        >
-          {clearing ? (
-            <>
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              Resetting...
-            </>
-          ) : (
-            <>
-              <Trash2 className="w-3.5 h-3.5" />
-              Reset Library
-            </>
-          )}
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setShowFilters(!showFilters)}
+            className={`flex items-center gap-2 px-3 py-1.5 border rounded-lg text-xs font-bold transition-all shadow-sm ${
+              showFilters || hasActiveFilters
+                ? "bg-primary/5 border-primary/30 text-primary"
+                : "bg-white border-zinc-200 text-zinc-700 hover:bg-zinc-50"
+            }`}
+          >
+            <SlidersHorizontal className="w-3.5 h-3.5" />
+            Filter & Sort
+            {hasActiveFilters && (
+              <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+            )}
+          </button>
+
+          <button
+            onClick={handleResetLibrary}
+            disabled={clearing}
+            className="flex items-center gap-2 px-3 py-1.5 border border-red-200 hover:border-red-300 bg-red-50 hover:bg-red-100 disabled:bg-zinc-100 text-red-650 disabled:text-zinc-400 text-xs font-bold rounded-lg transition-colors shadow-sm"
+          >
+            {clearing ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                Resetting...
+              </>
+            ) : (
+              <>
+                <Trash2 className="w-3.5 h-3.5" />
+                Reset Library
+              </>
+            )}
+          </button>
+        </div>
       </div>
 
-      {/* Date Accordions */}
-      <div className="space-y-4">
-        {sortedDates.map((date) => {
-          const dateImages = groupedImages[date];
-          const isCollapsed = !!collapsedDates[date];
+      {/* Collapsible Filters Panel */}
+      {showFilters && (
+        <div className="mb-6 p-5 border border-zinc-200 rounded-xl bg-white shadow-sm space-y-4 transition-all">
+          <div className="flex items-center justify-between border-b border-zinc-150 pb-3">
+            <span className="text-sm font-bold text-zinc-800 flex items-center gap-1.5">
+              <SlidersHorizontal className="w-4 h-4 text-primary" />
+              Gallery Refinements
+            </span>
+            {hasActiveFilters && (
+              <button
+                onClick={handleResetFilters}
+                className="flex items-center gap-1 text-[10px] font-extrabold text-zinc-500 hover:text-red-650 transition-colors uppercase tracking-wider"
+              >
+                <RotateCcw className="w-3 h-3" /> Reset Filters
+              </button>
+            )}
+          </div>
 
-          return (
-            <div 
-              key={date}
-              className="border border-zinc-200 rounded-xl overflow-hidden bg-white shadow-sm transition-all duration-300"
-            >
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {/* 1. Sorting & Mood */}
+            <div className="space-y-4">
+              <div>
+                <label className="text-[10px] font-bold text-zinc-400 uppercase block mb-1.5">Sorting Profile</label>
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value)}
+                  className="w-full px-3 py-2 bg-zinc-50 border border-zinc-250 hover:border-zinc-350 focus:border-primary focus:bg-white rounded-lg text-xs font-semibold text-zinc-700 focus:outline-none"
+                >
+                  <option value="date_desc">Upload Date (Newest First)</option>
+                  <option value="date_asc">Upload Date (Oldest First)</option>
+                  <option value="aesthetics_desc">Aesthetics Rating (Highest First) ★</option>
+                  <option value="aesthetics_asc">Aesthetics Rating (Lowest First)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold text-zinc-400 uppercase block mb-1.5">Chromatic Mood</label>
+                <div className="flex gap-1.5">
+                  {["all", "warm", "cool", "neutral"].map((mood) => (
+                    <button
+                      key={mood}
+                      onClick={() => setMoodFilter(mood)}
+                      className={`flex-1 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider border capitalize transition-colors ${
+                        moodFilter === mood
+                          ? mood === "warm"
+                            ? "bg-orange-50 border-orange-300 text-orange-700 shadow-sm"
+                            : mood === "cool"
+                              ? "bg-blue-50 border-blue-300 text-blue-700 shadow-sm"
+                              : mood === "neutral"
+                                ? "bg-zinc-100 border-zinc-300 text-zinc-700 shadow-sm"
+                                : "bg-primary/5 border-primary/30 text-primary shadow-sm"
+                          : "bg-white border-zinc-200 text-zinc-500 hover:bg-zinc-50"
+                      }`}
+                    >
+                      {mood}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* 2. Exposure & Saturation Ranges */}
+            <div className="space-y-4">
+              <div>
+                <div className="flex justify-between text-[10px] font-bold text-zinc-400 uppercase mb-1.5">
+                  <span>Luminance Range</span>
+                  <span className="text-zinc-700 font-extrabold">{minBrightness}% - {maxBrightness}%</span>
+                </div>
+                <div className="space-y-2">
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={minBrightness}
+                    onChange={(e) => setMinBrightness(Number(e.target.value))}
+                    className="w-full accent-primary h-1 bg-zinc-150 rounded"
+                    title="Min brightness"
+                  />
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={maxBrightness}
+                    onChange={(e) => setMaxBrightness(Number(e.target.value))}
+                    className="w-full accent-primary h-1 bg-zinc-150 rounded"
+                    title="Max brightness"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <div className="flex justify-between text-[10px] font-bold text-zinc-400 uppercase mb-1.5">
+                  <span>Saturation Range</span>
+                  <span className="text-zinc-700 font-extrabold">{minSaturation}% - {maxSaturation}%</span>
+                </div>
+                <div className="space-y-2">
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={minSaturation}
+                    onChange={(e) => setMinSaturation(Number(e.target.value))}
+                    className="w-full accent-primary h-1 bg-zinc-150 rounded"
+                    title="Min saturation"
+                  />
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={maxSaturation}
+                    onChange={(e) => setMaxSaturation(Number(e.target.value))}
+                    className="w-full accent-primary h-1 bg-zinc-150 rounded"
+                    title="Max saturation"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* 3. Sharpness threshold */}
+            <div>
+              <div className="flex justify-between text-[10px] font-bold text-zinc-400 uppercase mb-1.5">
+                <span>Min Focus/Sharpness</span>
+                <span className="text-zinc-700 font-extrabold">{minSharpness}%</span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                value={minSharpness}
+                onChange={(e) => setMinSharpness(Number(e.target.value))}
+                className="w-full accent-primary h-1 bg-zinc-150 rounded mb-3"
+              />
+              <div className="text-[10px] text-zinc-400 leading-normal">
+                Filter soft or motion-blurred photos. Slide right to only show pin-sharp focused images.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Grid rendering branches */}
+      {filteredImages.length === 0 ? (
+        <div className="w-full text-center py-16 border border-zinc-200 rounded-2xl bg-white shadow-sm">
+          <div className="p-4 bg-zinc-50 border border-zinc-250 w-fit mx-auto rounded-2xl mb-4 shadow-sm">
+            <SlidersHorizontal className="w-8 h-8 text-zinc-400" />
+          </div>
+          <h3 className="text-zinc-800 font-bold text-lg mb-1">No matching assets found</h3>
+          <p className="text-zinc-500 text-sm max-w-md mx-auto mb-6">
+            No assets match your current combination of sorting, chromatic mood, exposure, saturation, or focus filters.
+          </p>
+          <button
+            onClick={handleResetFilters}
+            className="px-4 py-2 bg-primary hover:bg-primary-hover text-white text-xs font-bold rounded-lg transition-colors shadow-sm"
+          >
+            Clear Filters
+          </button>
+        </div>
+      ) : isDateGrouped ? (
+        /* Date-grouped Accordion list */
+        <div className="space-y-4">
+          {sortedDates.map((date) => {
+            const dateImages = groupedImages[date];
+            const isCollapsed = !!collapsedDates[date];
+
+            return (
+              <div 
+                key={date}
+                className="border border-zinc-200 rounded-xl overflow-hidden bg-white shadow-sm transition-all duration-300"
+              >
               {/* Collapsible Header */}
               <button
                 onClick={() => toggleDateCollapse(date)}
@@ -333,6 +630,107 @@ export default function ImageGallery({ images, loading, onResetComplete }: Image
           );
         })}
       </div>
+    ) : (
+      /* Flat Grid for Global Aesthetics sorting */
+      <div className="p-5 border border-zinc-200 rounded-xl bg-white shadow-sm">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+          {sortedImages.map((img) => {
+            const fromZip = img.originalPath && img.originalPath !== img.filename;
+            const status = img.status || "completed";
+            return (
+              <div
+                key={img._id}
+                onClick={() => {
+                  setActiveLightboxImage(img);
+                  setHoveredObjectIndex(null);
+                  setRenderedDimensions(null);
+                }}
+                className="group relative cursor-pointer aspect-square bg-zinc-100 rounded-lg overflow-hidden border border-zinc-200 hover:border-primary/50 transition-all duration-300 shadow-sm"
+              >
+                {/* Aesthetic Score Badge */}
+                {status === "completed" && typeof img.qualityScore === "number" && (
+                  <div className="absolute top-2 left-2 z-10 px-2 py-0.5 bg-black/65 backdrop-blur-md border border-white/10 rounded-md text-white text-[11px] font-extrabold flex items-center gap-1 shadow-sm select-none transition-all duration-300">
+                    <span className="text-amber-400">★</span>
+                    <span>{img.qualityScore.toFixed(1)}</span>
+                  </div>
+                )}
+
+                {/* Image */}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={img.cloudinaryUrl}
+                  alt={img.filename}
+                  className={`object-cover w-full h-full transition-transform duration-500 ease-out ${
+                    status === "completed" ? "group-hover:scale-105" : "opacity-50 blur-[0.5px]"
+                  }`}
+                  loading="lazy"
+                />
+
+                {/* Processing & Error Overlays */}
+                {status !== "completed" && (
+                  <div className="absolute inset-0 bg-black/45 flex flex-col items-center justify-center p-3 text-center select-none">
+                    {status === "pending" && (
+                      <>
+                        <Clock className="w-5 h-5 text-zinc-350 animate-pulse mb-1" />
+                        <span className="text-zinc-350 text-[10px] font-bold uppercase tracking-wider">Queued</span>
+                      </>
+                    )}
+                    {status === "processing" && (
+                      <>
+                        <Loader2 className="w-5 h-5 text-primary animate-spin mb-1" />
+                        <span className="text-primary text-[10px] font-bold uppercase tracking-wider animate-pulse">Analyzing</span>
+                      </>
+                    )}
+                    {status === "failed" && (
+                      <>
+                        <AlertTriangle className="w-5 h-5 text-red-500 mb-1" />
+                        <span className="text-red-400 text-[10px] font-bold uppercase tracking-wider">Failed</span>
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {/* Hover Overlay */}
+                {status === "completed" && (
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-end p-3">
+                    <Eye className="w-5 h-5 text-primary absolute top-2 right-2 drop-shadow" />
+                    <p className="text-white font-medium text-xs truncate drop-shadow">
+                      {img.filename}
+                    </p>
+                    <p className="text-primary text-[10px] font-bold truncate drop-shadow">
+                      By: {img.uploadedBy ? img.uploadedBy.split("@")[0] : "System"}
+                    </p>
+                    <p className="text-zinc-300 text-[10px] flex items-center gap-1 mt-0.5">
+                      <HardDrive className="w-3 h-3" />
+                      {formatSize(img.fileSize)}
+                    </p>
+                    {/* Preview Tags */}
+                    {Array.isArray(img.tags) && img.tags.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-1 max-h-5 overflow-hidden">
+                        {img.tags.slice(0, 3).map((tag, idx) => (
+                          <span
+                            key={idx}
+                            className="px-1.5 py-0.5 bg-white/10 border border-white/5 rounded text-[8px] text-zinc-350 font-extrabold uppercase tracking-wide"
+                          >
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {fromZip && (
+                      <p className="text-amber-455 text-[9px] truncate font-mono mt-1">
+                        ZIP: {img.originalPath}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    )
+  }
 
       {/* Lightbox Modal */}
       {activeLightboxImage && (
@@ -717,6 +1115,15 @@ export default function ImageGallery({ images, loading, onResetComplete }: Image
                     <span className="text-zinc-800 text-sm font-semibold break-all leading-normal">{activeLightboxImage.filename}</span>
                   </div>
 
+                  {renderedDimensions && (
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-zinc-400 block">Resolution</span>
+                      <span className="text-zinc-800 text-sm font-medium">
+                        {renderedDimensions.naturalWidth} x {renderedDimensions.naturalHeight} px
+                      </span>
+                    </div>
+                  )}
+
                   <div>
                     <span className="text-[10px] uppercase font-bold text-zinc-400 block">Uploaded Date</span>
                     <span className="text-zinc-800 text-sm font-medium">{formatDate(activeLightboxImage.uploadDate)}</span>
@@ -748,12 +1155,83 @@ export default function ImageGallery({ images, loading, onResetComplete }: Image
                 </div>
               </div>
 
-              <div className="mt-8 flex gap-3">
+              {/* Reprocess Success Feedback */}
+              {reprocessSuccessMessage && (
+                <div className="mt-4 px-3 py-2 bg-emerald-50 border border-emerald-250 text-emerald-700 text-[11px] font-semibold rounded-lg text-center animate-pulse">
+                  {reprocessSuccessMessage}
+                </div>
+              )}
+
+              <div className="mt-6 space-y-2">
+                {/* Reprocess / Retry Action Button */}
+                {activeLightboxImage.status === "failed" ? (
+                  <button
+                    onClick={() => handleReprocessImage(activeLightboxImage._id)}
+                    disabled={reprocessing}
+                    className="w-full py-2 px-4 bg-red-650 hover:bg-red-700 disabled:bg-zinc-350 text-white text-center text-xs font-bold rounded-lg transition-colors shadow-sm flex items-center justify-center gap-1.5"
+                  >
+                    {reprocessing ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        Retrying...
+                      </>
+                    ) : (
+                      <>
+                        <RotateCcw className="w-3.5 h-3.5" />
+                        Retry Analysis
+                      </>
+                    )}
+                  </button>
+                ) : activeLightboxImage.status === "pending" || activeLightboxImage.status === "processing" ? (
+                  <button
+                    disabled
+                    className="w-full py-2 px-4 bg-zinc-200 text-zinc-500 text-center text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 cursor-not-allowed border border-zinc-250"
+                  >
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-zinc-400" />
+                    Analyzing Metadata...
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => handleReprocessImage(activeLightboxImage._id)}
+                    disabled={reprocessing}
+                    className="w-full py-2 px-4 border border-zinc-250 bg-white hover:bg-zinc-50 text-zinc-700 text-center text-xs font-bold rounded-lg transition-colors shadow-sm flex items-center justify-center gap-1.5"
+                  >
+                    {reprocessing ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        Re-queueing...
+                      </>
+                    ) : (
+                      <>
+                        <RotateCcw className="w-3.5 h-3.5 text-zinc-500" />
+                        Re-analyze Asset
+                      </>
+                    )}
+                  </button>
+                )}
+
+                {/* Primary Action Button Options */}
+                <div className="flex gap-2">
+                  <a
+                    href={getDownloadUrl(activeLightboxImage.cloudinaryUrl)}
+                    download={activeLightboxImage.filename}
+                    className="flex-1 py-2 px-3 border border-zinc-250 bg-white hover:bg-zinc-50 text-zinc-750 text-center text-xs font-semibold rounded-lg transition-colors shadow-sm flex items-center justify-center gap-1"
+                  >
+                    Download
+                  </a>
+                  <button
+                    onClick={() => handleCopyUrl(activeLightboxImage.cloudinaryUrl)}
+                    className="flex-1 py-2 px-3 border border-zinc-250 bg-white hover:bg-zinc-50 text-zinc-750 text-center text-xs font-semibold rounded-lg transition-colors shadow-sm flex items-center justify-center gap-1"
+                  >
+                    {copiedUrl ? "Copied URL!" : "Copy Link"}
+                  </button>
+                </div>
+
                 <a
                   href={activeLightboxImage.cloudinaryUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex-1 py-2.5 px-4 bg-primary hover:bg-primary-hover text-white text-center text-xs font-semibold rounded-lg transition-colors shadow-sm hover:shadow-primary/10"
+                  className="w-full py-2 px-4 bg-zinc-900 hover:bg-zinc-800 text-white text-center text-xs font-semibold rounded-lg transition-colors shadow-sm flex items-center justify-center mt-1"
                 >
                   Open Original Quality
                 </a>
