@@ -12,7 +12,9 @@ import {
   AlertCircle,
   LogOut,
   User as UserIcon,
-  Shield
+  Shield,
+  Search,
+  X
 } from "lucide-react";
 import { signOut } from "next-auth/react";
 import UploadZone from "./UploadZone";
@@ -27,7 +29,10 @@ export default function DashboardClient({ session }: DashboardClientProps) {
   const [loading, setLoading] = useState<boolean>(true);
   const [dbConnected, setDbConnected] = useState<boolean | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-
+ 
+  const [searchInput, setSearchInput] = useState<string>("");
+  const [searchQuery, setSearchQuery] = useState<string>("");
+ 
   const [storageData, setStorageData] = useState<{
     used: number;
     limit: number;
@@ -64,12 +69,13 @@ export default function DashboardClient({ session }: DashboardClientProps) {
     }
   };
 
-  const fetchImages = async () => {
+  const fetchImages = async (query?: string) => {
     setLoading(true);
     setErrorMessage(null);
     fetchStorage(); // Refresh storage metrics concurrently
     try {
-      const response = await fetch("/api/images");
+      const url = query ? `/api/images?search=${encodeURIComponent(query)}` : "/api/images";
+      const response = await fetch(url);
       const data = await response.json();
       if (data.success) {
         setImages(data.images || []);
@@ -86,18 +92,29 @@ export default function DashboardClient({ session }: DashboardClientProps) {
       setLoading(false);
     }
   };
-
+ 
+  // Debounce search input modifications
   useEffect(() => {
-    fetchImages();
-  }, []);
-
+    const delayDebounceFn = setTimeout(() => {
+      setSearchQuery(searchInput);
+    }, 450);
+ 
+    return () => clearTimeout(delayDebounceFn);
+  }, [searchInput]);
+ 
+  // Fetch image records when search query parameter changes
+  useEffect(() => {
+    fetchImages(searchQuery);
+  }, [searchQuery]);
+ 
   // Poll for status updates if there are any active queue processing jobs
   useEffect(() => {
     const hasActiveJobs = images.some((img) => img.status === "pending" || img.status === "processing");
     if (!hasActiveJobs) return;
-
+ 
     const interval = setInterval(() => {
-      fetch("/api/images")
+      const url = searchQuery ? `/api/images?search=${encodeURIComponent(searchQuery)}` : "/api/images";
+      fetch(url)
         .then((res) => res.json())
         .then((data) => {
           if (data.success && data.images) {
@@ -106,9 +123,9 @@ export default function DashboardClient({ session }: DashboardClientProps) {
         })
         .catch((err) => console.error("Error polling image updates:", err));
     }, 3000);
-
+ 
     return () => clearInterval(interval);
-  }, [images]);
+  }, [images, searchQuery]);
 
   // Compute stats
   const uniqueDatesCount = new Set(images.map((img) => img.uploadDate)).size;
@@ -269,18 +286,50 @@ export default function DashboardClient({ session }: DashboardClientProps) {
             </p>
           </div>
         </section>
-
+ 
+        {/* Search Catalog Panel */}
+        <section className="mb-6">
+          <div className="relative bg-white border border-zinc-200 rounded-xl p-4 shadow-sm flex flex-col sm:flex-row gap-4 items-center">
+            <div className="relative flex-1 w-full">
+              <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-zinc-400">
+                <Search className="w-4.5 h-4.5" />
+              </span>
+              <input
+                type="text"
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                placeholder="Search catalog by filename, paths, keywords/tags, or detected objects..."
+                className="w-full pl-9 pr-9 py-2.5 bg-zinc-50 border border-zinc-250 hover:border-zinc-350 focus:border-primary focus:bg-white text-sm text-zinc-800 placeholder-zinc-400 rounded-lg transition-all focus:outline-none focus:ring-1 focus:ring-primary/20"
+              />
+              {searchInput && (
+                <button
+                  onClick={() => setSearchInput("")}
+                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-zinc-400 hover:text-zinc-650 transition-colors"
+                  title="Clear search"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+            {searchQuery && (
+              <div className="text-xs font-semibold text-zinc-500 bg-zinc-100 border border-zinc-200 px-3 py-1.5 rounded-lg select-none">
+                Found <span className="text-primary font-bold">{images.length}</span> matching {images.length === 1 ? "asset" : "assets"}
+              </div>
+            )}
+          </div>
+        </section>
+ 
         {/* Upload Panel */}
         <section className="mb-8">
-          <UploadZone onUploadComplete={fetchImages} />
+          <UploadZone onUploadComplete={() => fetchImages(searchQuery)} />
         </section>
-
+ 
         {/* Image Browser Gallery */}
         <section>
           <ImageGallery 
             images={images} 
             loading={loading} 
-            onResetComplete={fetchImages} 
+            onResetComplete={() => fetchImages(searchQuery)} 
           />
         </section>
 

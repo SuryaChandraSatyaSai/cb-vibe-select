@@ -22,6 +22,7 @@ export interface ImageRecord {
   _id: string;
   filename: string;
   originalPath?: string;
+  hash?: string;
   cloudinaryPublicId: string;
   cloudinaryUrl: string;
   fileSize: number;
@@ -36,6 +37,7 @@ export interface ImageRecord {
     saturation?: number;
     temperature?: "warm" | "cool" | "neutral";
     palette?: string[];
+    sharpness?: number;
   };
   tags?: string[];
   objects?: Array<{
@@ -528,6 +530,120 @@ export default function ImageGallery({ images, loading, onResetComplete }: Image
                           style={{ width: `${activeLightboxImage.qualityScore * 10}%` }}
                         />
                       </div>
+                    </div>
+                  )}
+
+                  {/* Dominant Palette */}
+                  {activeLightboxImage.attributes?.palette && activeLightboxImage.attributes.palette.length > 0 && (
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-zinc-400 block mb-2">Dominant Palette</span>
+                      <div className="flex gap-2.5">
+                        {activeLightboxImage.attributes.palette.map((color, idx) => (
+                          <div key={idx} className="flex flex-col items-center gap-1 group/color relative">
+                            <div
+                              className="w-8 h-8 rounded-full border border-zinc-200 shadow-sm transition-transform duration-200 hover:scale-110 cursor-pointer"
+                              style={{ backgroundColor: color }}
+                              title={`${color} (Click to copy)`}
+                              onClick={() => {
+                                navigator.clipboard.writeText(color);
+                                alert(`Copied hex code ${color} to clipboard!`);
+                              }}
+                            />
+                            <span className="text-[8px] font-mono text-zinc-400 uppercase font-semibold">{color}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Technical Metrics Card */}
+                  {activeLightboxImage.attributes && (
+                    <div className="border border-zinc-200 rounded-xl p-3 bg-zinc-50/50 shadow-inner space-y-3">
+                      <span className="text-[10px] uppercase font-bold text-zinc-400 block mb-1">Technical Profiles</span>
+
+                      {/* Brightness */}
+                      {typeof activeLightboxImage.attributes.brightness === "number" && (
+                        <div>
+                          <div className="flex justify-between text-[11px] font-medium text-zinc-650 mb-1">
+                            <span>Luminance (Brightness)</span>
+                            <span className="font-bold text-zinc-800">{activeLightboxImage.attributes.brightness}%</span>
+                          </div>
+                          <div className="w-full bg-zinc-200 h-1.5 rounded-full overflow-hidden border border-zinc-200/40">
+                            <div
+                              className="bg-amber-450 h-full rounded-full transition-all duration-500"
+                              style={{ width: `${activeLightboxImage.attributes.brightness}%` }}
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Saturation */}
+                      {typeof activeLightboxImage.attributes.saturation === "number" && (
+                        <div>
+                          <div className="flex justify-between text-[11px] font-medium text-zinc-650 mb-1">
+                            <span>Color Saturation</span>
+                            <span className="font-bold text-zinc-800">{activeLightboxImage.attributes.saturation}%</span>
+                          </div>
+                          <div className="w-full bg-zinc-200 h-1.5 rounded-full overflow-hidden border border-zinc-200/40">
+                            <div
+                              className="bg-violet-500 h-full rounded-full transition-all duration-500"
+                              style={{ width: `${activeLightboxImage.attributes.saturation}%` }}
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Sharpness */}
+                      {typeof activeLightboxImage.attributes.sharpness === "number" && (
+                        <div>
+                          <div className="flex justify-between text-[11px] font-medium text-zinc-650 mb-1">
+                            <span>Sharpness (Focus)</span>
+                            <span className="font-bold text-zinc-800">{activeLightboxImage.attributes.sharpness}%</span>
+                          </div>
+                          <div className="w-full bg-zinc-200 h-1.5 rounded-full overflow-hidden border border-zinc-200/40">
+                            <div
+                              className="bg-emerald-500 h-full rounded-full transition-all duration-500"
+                              style={{ width: `${activeLightboxImage.attributes.sharpness}%` }}
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Focus Clarity Classification */}
+                      {typeof activeLightboxImage.attributes.sharpness === "number" && (
+                        <div className="flex items-center justify-between text-[11px] font-medium text-zinc-650 pt-1 border-t border-zinc-200/40">
+                          <span>Focus Clarity</span>
+                          <span className={`px-2 py-0.5 border rounded text-[9px] font-bold uppercase tracking-wider ${
+                            activeLightboxImage.attributes.sharpness >= 50
+                              ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                              : activeLightboxImage.attributes.sharpness >= 30
+                                ? "bg-amber-50 text-amber-700 border-amber-200"
+                                : "bg-red-50 text-red-700 border-red-200"
+                          }`}>
+                            {activeLightboxImage.attributes.sharpness >= 50
+                              ? "Sharp & Focused"
+                              : activeLightboxImage.attributes.sharpness >= 30
+                                ? "Soft / Mild Blur"
+                                : "Blurry / Motion Blur"}
+                          </span>
+                        </div>
+                      )}
+
+                      {/* Color Temperature */}
+                      {activeLightboxImage.attributes.temperature && (
+                        <div className="flex items-center justify-between text-[11px] font-medium text-zinc-650 pt-1 border-t border-zinc-200/40">
+                          <span>Chromatic Mood</span>
+                          <span className={`px-2 py-0.5 border rounded text-[9px] font-bold uppercase tracking-wider ${
+                            activeLightboxImage.attributes.temperature === "warm"
+                              ? "bg-orange-50 text-orange-700 border-orange-200"
+                              : activeLightboxImage.attributes.temperature === "cool"
+                                ? "bg-blue-50 text-blue-755 border-blue-200"
+                                : "bg-zinc-100 text-zinc-600 border-zinc-200"
+                          }`}>
+                            {activeLightboxImage.attributes.temperature} tone
+                          </span>
+                        </div>
+                      )}
                     </div>
                   )}
 

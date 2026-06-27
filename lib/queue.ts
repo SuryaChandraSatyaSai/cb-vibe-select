@@ -1,6 +1,7 @@
 import dbConnect from "./db";
 import ImageModel from "@/models/Image";
 import { queryAestheticScore, queryImageTags, queryObjectDetection } from "./hf";
+import { extractImageMetrics } from "./metrics";
 
 let isProcessing = false;
 
@@ -30,10 +31,27 @@ function parseFallbackTags(filename: string): string[] {
 async function analyzeImage(imageDoc: any) {
   console.log(`[Queue] Analyzing image: ${imageDoc.filename} (${imageDoc.cloudinaryUrl})`);
   
-  let imageBuffer: Buffer | null = null;
-
+  // 1. Extract Custom Technical Image Metrics first
+  let metrics: any = null;
   try {
-    // 1. Fetch image binary buffer from Cloudinary URL
+    console.log(`[Queue] Extracting technical image metrics...`);
+    metrics = await extractImageMetrics(imageDoc.cloudinaryUrl);
+    imageDoc.attributes = metrics;
+  } catch (err: any) {
+    console.warn(`[Queue] Technical metrics extraction failed. Error:`, err.message || err);
+    metrics = {
+      brightness: 60,
+      saturation: 45,
+      temperature: "neutral",
+      palette: ["#18181b", "#3f3f46", "#e4e4e7"],
+      sharpness: 80
+    };
+    imageDoc.attributes = metrics;
+  }
+
+  let imageBuffer: Buffer | null = null;
+  try {
+    // Fetch image binary buffer from Cloudinary URL
     console.log(`[Queue] Fetching image binary from Cloudinary...`);
     const imgRes = await fetch(imageDoc.cloudinaryUrl);
     if (!imgRes.ok) {
@@ -45,22 +63,57 @@ async function analyzeImage(imageDoc: any) {
     console.error(`[Queue] Error fetching image binary:`, err.message || err);
   }
 
-  // A. Aesthetic Scoring
+  // A. Aesthetic Scoring (Base score)
+  let baseScore = 6.0;
   if (imageBuffer) {
     try {
       console.log(`[Queue] Querying Hugging Face for aesthetic scoring...`);
       const aestheticScore = await queryAestheticScore(imageBuffer);
-      imageDoc.qualityScore = aestheticScore;
-      console.log(`[Queue] Aesthetic score for ${imageDoc.filename}: ${aestheticScore}`);
+      baseScore = aestheticScore;
+      console.log(`[Queue] Baseline Aesthetic score for ${imageDoc.filename}: ${aestheticScore}`);
     } catch (err: any) {
       console.warn(`[Queue] HF aesthetic scoring failed. Falling back to local scoring. Error:`, err.message || err);
-      const fallbackScore = calculateFallbackAestheticScore(imageDoc.filename, imageDoc.fileSize);
-      imageDoc.qualityScore = fallbackScore;
+      baseScore = calculateFallbackAestheticScore(imageDoc.filename, imageDoc.fileSize);
     }
   } else {
-    const fallbackScore = calculateFallbackAestheticScore(imageDoc.filename, imageDoc.fileSize);
-    imageDoc.qualityScore = fallbackScore;
+    baseScore = calculateFallbackAestheticScore(imageDoc.filename, imageDoc.fileSize);
   }
+
+  // Calculate penalties based on technical qualities
+  let exposurePenalty = 0;
+  let blurPenalty = 0;
+  let oversaturationPenalty = 0;
+
+  const brightness = metrics.brightness ?? 50;
+  const sharpness = metrics.sharpness ?? 80;
+  const saturation = metrics.saturation ?? 50;
+
+  // Exposure Penalty:
+  // Under-exposed (dark): brightness < 25
+  if (brightness < 25) {
+    exposurePenalty = (25 - brightness) * 0.12; // brightness=10 -> penalty=1.8
+  }
+  // Over-exposed (blown out): brightness > 85
+  else if (brightness > 85) {
+    exposurePenalty = (brightness - 85) * 0.15; // brightness=95 -> penalty=1.5
+  }
+
+  // Blur/Motion Penalty:
+  // Sharpness < 35 indicates blur or very flat textures
+  if (sharpness < 35) {
+    blurPenalty = ((35 - sharpness) / 35) * 4.0; // sharpness=10 -> penalty=2.85
+  }
+
+  // Oversaturation Penalty:
+  // Saturation > 90 indicates neon/artificial artifacts
+  if (saturation > 90) {
+    oversaturationPenalty = (saturation - 90) * 0.05; // max 0.5
+  }
+
+  // Apply penalties to compute final Quality Score
+  const adjustedScore = baseScore - exposurePenalty - blurPenalty - oversaturationPenalty;
+  imageDoc.qualityScore = Math.max(1.0, Math.min(10.0, Math.round(adjustedScore * 10) / 10));
+  console.log(`[Queue] Final Refined Quality Score for ${imageDoc.filename}: ${imageDoc.qualityScore} (Base: ${baseScore}, ExposurePen: -${exposurePenalty.toFixed(2)}, BlurPen: -${blurPenalty.toFixed(2)}, SaturationPen: -${oversaturationPenalty.toFixed(2)})`);
 
   // B. Image Tagging (RAM++ / fallback classification models)
   if (imageBuffer) {
@@ -93,14 +146,6 @@ async function analyzeImage(imageDoc: any) {
   } else {
     imageDoc.objects = [];
   }
-
-  // Pre-initialize standard empty metrics for future stages
-  imageDoc.attributes = {
-    brightness: 75,
-    saturation: 60,
-    temperature: "neutral",
-    palette: ["#18181b", "#3f3f46", "#e4e4e7"],
-  };
 }
 
 export async function triggerQueueProcessing() {

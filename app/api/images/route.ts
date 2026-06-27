@@ -13,7 +13,7 @@ cloudinary.config({
 });
 
 // GET /api/images - Retrieve all image records
-export async function GET() {
+export async function GET(request: NextRequest) {
   const session = await auth();
   if (!session || !session.user || !session.user.email) {
     return NextResponse.json(
@@ -24,7 +24,37 @@ export async function GET() {
 
   try {
     await dbConnect();
-    const images = await ImageModel.find({}).sort({ createdAt: -1 });
+    
+    const { searchParams } = new URL(request.url);
+    const search = searchParams.get("search")?.trim() || "";
+
+    let images;
+    if (search) {
+      console.log(`[Images API] Searching catalog for query: "${search}"`);
+      
+      // 1. First attempt full-text search using text index
+      images = await ImageModel.find(
+        { $text: { $search: search } },
+        { score: { $meta: "textScore" } }
+      ).sort({ score: { $meta: "textScore" } });
+
+      // 2. If no matches from text search, fall back to regex search for partial substring matches
+      if (images.length === 0) {
+        console.log(`[Images API] No text index matches. Running regex substring search fallback for: "${search}"`);
+        const regex = new RegExp(search, "i");
+        images = await ImageModel.find({
+          $or: [
+            { filename: regex },
+            { originalPath: regex },
+            { tags: { $in: [regex] } },
+            { "objects.label": regex }
+          ]
+        }).sort({ createdAt: -1 });
+      }
+    } else {
+      // Return all images sorted by creation date descending
+      images = await ImageModel.find({}).sort({ createdAt: -1 });
+    }
 
     // If any image is pending or processing, trigger the queue processing to make sure worker is active
     const hasActiveJobs = images.some((img) => img.status === "pending" || img.status === "processing");

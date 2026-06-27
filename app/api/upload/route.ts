@@ -1,23 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { v2 as cloudinary, UploadApiResponse } from "cloudinary";
 import AdmZip from "adm-zip";
+import crypto from "crypto";
 import dbConnect from "@/lib/db";
 import ImageModel from "@/models/Image";
 import { auth } from "@/auth";
 import { triggerQueueProcessing } from "@/lib/queue";
-
+ 
 // Configure Cloudinary
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
-
+ 
 // Configure Limits from Environment Variables
 const MAX_ZIP_SIZE = (parseInt(process.env.MAX_ZIP_SIZE_MB || "50") * 1024 * 1024);
 const MAX_IMAGE_SIZE = (parseInt(process.env.MAX_IMAGE_SIZE_MB || "10") * 1024 * 1024);
 const MAX_PROCESSING_TIME = (parseInt(process.env.MAX_PROCESSING_TIME_SECONDS || "60") * 1000);
-
+ 
 // Helper function to upload buffer to Cloudinary
 const uploadToCloudinary = (
   buffer: Buffer,
@@ -40,12 +41,12 @@ const uploadToCloudinary = (
     uploadStream.end(buffer);
   });
 };
-
+ 
 // Check if a file extension is an image
 const isImageFile = (filename: string): boolean => {
   return /\.(jpe?g|png|webp|gif)$/i.test(filename);
 };
-
+ 
 export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session || !session.user || !session.user.email) {
@@ -55,7 +56,7 @@ export async function POST(req: NextRequest) {
     );
   }
   const userEmail = session.user.email;
-
+ 
   try {
     await dbConnect();
   } catch (dbError: any) {
@@ -65,7 +66,7 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     );
   }
-
+ 
   const startTime = Date.now();
   
   // Basic content length validation if header exists
@@ -76,7 +77,7 @@ export async function POST(req: NextRequest) {
       { status: 413 }
     );
   }
-
+ 
   let formData: FormData;
   try {
     formData = await req.formData();
@@ -86,7 +87,7 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     );
   }
-
+ 
   const files = formData.getAll("files") as File[];
   if (!files || files.length === 0) {
     return NextResponse.json(
@@ -94,14 +95,14 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     );
   }
-
+ 
   const todayStr = new Date().toISOString().split("T")[0];
   const cloudinaryFolder = `vibeselect/${todayStr}`;
-
+ 
   const uploadedRecords: any[] = [];
   const skippedRecords: any[] = [];
   let isTimedOut = false;
-
+ 
   // Flatten and prepare files to process (either direct images or extracted zip entries)
   const itemsToProcess: {
     filename: string;
@@ -109,7 +110,7 @@ export async function POST(req: NextRequest) {
     buffer: Buffer;
     size: number;
   }[] = [];
-
+ 
   for (const file of files) {
     const isZip = file.name.endsWith(".zip") || file.type === "application/zip";
     
@@ -121,17 +122,17 @@ export async function POST(req: NextRequest) {
         });
         continue;
       }
-
+ 
       try {
         const arrayBuffer = await file.arrayBuffer();
         const zip = new AdmZip(Buffer.from(arrayBuffer));
         const entries = zip.getEntries();
-
+ 
         for (const entry of entries) {
           if (entry.isDirectory) continue;
           
           if (!isImageFile(entry.entryName)) continue;
-
+ 
           const entrySize = entry.header.size;
           if (entrySize > MAX_IMAGE_SIZE) {
             skippedRecords.push({
@@ -140,7 +141,7 @@ export async function POST(req: NextRequest) {
             });
             continue;
           }
-
+ 
           itemsToProcess.push({
             filename: entry.name,
             originalPath: entry.entryName,
@@ -164,7 +165,7 @@ export async function POST(req: NextRequest) {
         });
         continue;
       }
-
+ 
       if (file.size > MAX_IMAGE_SIZE) {
         skippedRecords.push({
           filename: file.name,
@@ -172,7 +173,7 @@ export async function POST(req: NextRequest) {
         });
         continue;
       }
-
+ 
       try {
         const arrayBuffer = await file.arrayBuffer();
         itemsToProcess.push({
@@ -189,7 +190,7 @@ export async function POST(req: NextRequest) {
       }
     }
   }
-
+ 
   // Sequential uploading to Cloudinary and database registration
   for (const item of itemsToProcess) {
     const elapsed = Date.now() - startTime;
@@ -197,19 +198,33 @@ export async function POST(req: NextRequest) {
       isTimedOut = true;
       break;
     }
-
+ 
     try {
+      // Calculate MD5 hash of image buffer
+      const hash = crypto.createHash("md5").update(item.buffer).digest("hex");
+ 
+      // Check if duplicate hash exists
+      const existing = await ImageModel.findOne({ hash });
+      if (existing) {
+        skippedRecords.push({
+          filename: item.filename,
+          reason: "Duplicate asset (file already exists in the catalog).",
+        });
+        continue;
+      }
+ 
       // Upload to Cloudinary
       const cloudinaryResult = await uploadToCloudinary(
         item.buffer,
         cloudinaryFolder,
         item.filename
       );
-
+ 
       // Save to MongoDB
       const imageDoc = await ImageModel.create({
         filename: item.filename,
         originalPath: item.originalPath,
+        hash,
         cloudinaryPublicId: cloudinaryResult.public_id,
         cloudinaryUrl: cloudinaryResult.secure_url,
         fileSize: item.size,

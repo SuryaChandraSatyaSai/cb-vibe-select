@@ -3,6 +3,7 @@ import mongoose, { Schema, Document, Model } from "mongoose";
 export interface IImage extends Document {
   filename: string;
   originalPath?: string;
+  hash?: string;
   cloudinaryPublicId: string;
   cloudinaryUrl: string;
   fileSize: number;
@@ -15,6 +16,7 @@ export interface IImage extends Document {
     saturation?: number;
     temperature?: "warm" | "cool" | "neutral";
     palette?: string[];
+    sharpness?: number;
   };
   tags?: string[];
   status?: "pending" | "processing" | "completed" | "failed";
@@ -35,6 +37,7 @@ const ImageSchema: Schema = new Schema(
   {
     filename: { type: String, required: true },
     originalPath: { type: String },
+    hash: { type: String, index: true },
     cloudinaryPublicId: { type: String, required: true },
     cloudinaryUrl: { type: String, required: true },
     fileSize: { type: Number, required: true },
@@ -47,6 +50,7 @@ const ImageSchema: Schema = new Schema(
       saturation: { type: Number },
       temperature: { type: String, enum: ["warm", "cool", "neutral"] },
       palette: { type: [String] },
+      sharpness: { type: Number },
     },
     tags: { type: [String] },
     objects: {
@@ -72,6 +76,25 @@ const ImageSchema: Schema = new Schema(
   },
   {
     timestamps: true,
+  }
+);
+
+// Define text search index over key catalog metadata fields
+ImageSchema.index(
+  {
+    filename: "text",
+    originalPath: "text",
+    tags: "text",
+    "objects.label": "text",
+  },
+  {
+    weights: {
+      filename: 10,
+      originalPath: 5,
+      tags: 3,
+      "objects.label": 2,
+    },
+    name: "ImageTextIndex",
   }
 );
 
