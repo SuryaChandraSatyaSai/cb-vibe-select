@@ -1,8 +1,9 @@
 import dbConnect from "./db";
 import ImageModel from "@/models/Image";
 import PersonModel from "@/models/Person";
-import { judgeImage } from "./groq";
+import { tagImage } from "./groq";
 import { extractImageMetrics } from "./metrics";
+import { scoreImageQuality } from "./iqa";
 import { buildMatcher, recognizeFaces, fetchAnalysisBuffer } from "./face";
 
 let isProcessing = false;
@@ -23,23 +24,28 @@ async function analyzeImage(imageDoc: any, matcher: any, idToName: Map<string, s
     sharpness: metrics.sharpness,
   };
 
-  // 2. Quality score + tags from the free Groq vision judge (most accurate — it
-  //    actually sees blur/exposure). On any failure (rate limit, outage, no key) fall
-  //    back to the local metric score so the pipeline never blocks or fabricates.
+  // 2. Quality score from in-process CLIP-IQA (transformers.js) — human-MOS-calibrated,
+  //    unlike the local Laplacian heuristic. Runs in the same Node process (no extra
+  //    server). On any failure fall back to the local metric score: never blocks/fabricates.
   try {
-    const j = await judgeImage(imageDoc.cloudinaryUrl);
-    imageDoc.qualityScore = j.qualityScore;
-    imageDoc.qualityReason = j.reason || undefined;
-    imageDoc.tags = j.tags;
-    console.log(`[Queue] Groq score for ${imageDoc.filename}: ${j.qualityScore} (${j.reason})`);
+    const q = await scoreImageQuality(imageDoc.cloudinaryUrl);
+    imageDoc.qualityScore = q.qualityScore;
+    console.log(`[Queue] CLIP-IQA score for ${imageDoc.filename}: ${q.qualityScore} (P(good)=${q.good.toFixed(3)})`);
   } catch (err: any) {
-    console.warn(`[Queue] Groq judge unavailable, using local metric score:`, err.message || err);
+    console.warn(`[Queue] CLIP-IQA unavailable, using local metric score:`, err.message || err);
     imageDoc.qualityScore = metrics.qualityScore;
-    imageDoc.qualityReason = undefined;
+  }
+
+  // 3. Tags from the free Groq vision tagger (CLIP-IQA scores quality but doesn't tag).
+  //    On any failure, no tags — never blocks/fabricates.
+  try {
+    imageDoc.tags = await tagImage(imageDoc.cloudinaryUrl);
+  } catch (err: any) {
+    console.warn(`[Queue] Groq tagging unavailable for ${imageDoc.filename}:`, err.message || err);
     imageDoc.tags = [];
   }
 
-  // 3. Recognize seeded people (self-hosted face-api). Like the Groq step, this never blocks
+  // 4. Recognize seeded people (self-hosted face-api). Like the steps above, this never blocks
   //    and never fabricates: no seeded people / no match / any failure -> empty `people`.
   try {
     if (!matcher) {

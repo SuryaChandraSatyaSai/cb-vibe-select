@@ -1,19 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { v2 as cloudinary, UploadApiResponse } from "cloudinary";
+import type { UploadApiResponse } from "cloudinary";
+import cloudinary from "@/lib/cloudinary";
 import AdmZip from "adm-zip";
 import crypto from "crypto";
 import dbConnect from "@/lib/db";
 import ImageModel from "@/models/Image";
 import { auth } from "@/auth";
 import { triggerQueueProcessing } from "@/lib/queue";
- 
-// Configure Cloudinary
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-});
- 
+
 // Configure Limits from Environment Variables
 const MAX_ZIP_SIZE = (parseInt(process.env.MAX_ZIP_SIZE_MB || "50") * 1024 * 1024);
 const MAX_IMAGE_SIZE = (parseInt(process.env.MAX_IMAGE_SIZE_MB || "10") * 1024 * 1024);

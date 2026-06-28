@@ -7,14 +7,9 @@ const MONGODB_URI = process.env.MONGODB_URI;
  * in development. This prevents connections from growing exponentially
  * during API Route usage.
  */
-interface MongooseCache {
-  conn: typeof mongoose | null;
-  promise: Promise<typeof mongoose> | null;
-}
-
 declare global {
   // eslint-disable-next-line no-var
-  var mongooseCache: MongooseCache | undefined;
+  var mongooseCache: { conn: typeof mongoose | null; promise: Promise<typeof mongoose> | null } | undefined;
 }
 
 let cached = global.mongooseCache;

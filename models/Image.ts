@@ -11,7 +11,6 @@ export interface IImage extends Document {
   uploadedBy: string; // Uploader email
   createdAt: Date;
   qualityScore?: number;
-  qualityReason?: string;
   attributes?: {
     brightness?: number;
     contrast?: number;
@@ -23,16 +22,6 @@ export interface IImage extends Document {
   tags?: string[];
   status?: "pending" | "processing" | "completed" | "failed";
   analysisError?: string;
-  objects?: Array<{
-    label: string;
-    score: number;
-    box: {
-      xmin: number;
-      ymin: number;
-      xmax: number;
-      ymax: number;
-    };
-  }>;
   people?: Array<{
     personId: mongoose.Types.ObjectId; // ref Person
     name: string; // denormalized for display + name search
@@ -53,7 +42,6 @@ const ImageSchema: Schema = new Schema(
     uploadedBy: { type: String, required: true, index: true },
     createdAt: { type: Date, default: Date.now },
     qualityScore: { type: Number },
-    qualityReason: { type: String },
     attributes: {
       brightness: { type: Number },
       contrast: { type: Number },
@@ -63,19 +51,6 @@ const ImageSchema: Schema = new Schema(
       sharpness: { type: Number },
     },
     tags: { type: [String] },
-    objects: {
-      type: [{
-        label: { type: String, required: true },
-        score: { type: Number, required: true },
-        box: {
-          xmin: { type: Number, required: true },
-          ymin: { type: Number, required: true },
-          xmax: { type: Number, required: true },
-          ymax: { type: Number, required: true }
-        }
-      }],
-      default: undefined
-    },
     people: {
       type: [{
         personId: { type: Schema.Types.ObjectId, ref: "Person", required: true },
@@ -104,14 +79,12 @@ ImageSchema.index(
     filename: "text",
     originalPath: "text",
     tags: "text",
-    "objects.label": "text",
   },
   {
     weights: {
       filename: 10,
       originalPath: 5,
       tags: 3,
-      "objects.label": 2,
     },
     name: "ImageTextIndex",
   }

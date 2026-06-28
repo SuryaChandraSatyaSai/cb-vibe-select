@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
+import { bytes } from "@/lib/format";
 import { 
   Sparkles, 
   Activity, 
@@ -130,13 +131,6 @@ export default function DashboardClient({ session }: DashboardClientProps) {
   // Compute stats
   const uniqueDatesCount = new Set(images.map((img) => img.uploadDate)).size;
   const totalStorageBytes = images.reduce((sum, img) => sum + img.fileSize, 0);
-  const formatTotalSize = (bytes: number): string => {
-    const mb = bytes / (1024 * 1024);
-    if (mb < 1024) {
-      return mb.toFixed(1) + " MB";
-    }
-    return (mb / 1024).toFixed(2) + " GB";
-  };
 
   const handleSignOut = () => {
     signOut({ callbackUrl: "/login" });
@@ -255,7 +249,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
             ) : storageData ? (
               <div>
                 <p className="text-sm font-bold text-zinc-900 mt-1">
-                  {formatTotalSize(storageData.free)} Free
+                  {bytes(storageData.free)} Free
                 </p>
                 <div className="w-full bg-zinc-100 rounded-full h-1.5 mt-2 overflow-hidden border border-zinc-200">
                   <div 
@@ -264,8 +258,8 @@ export default function DashboardClient({ session }: DashboardClientProps) {
                   />
                 </div>
                 <div className="flex justify-between items-center text-[10px] text-zinc-400 mt-1.5 font-medium">
-                  <span>{formatTotalSize(storageData.used)} used</span>
-                  <span>{formatTotalSize(storageData.limit)} max ({storageData.plan})</span>
+                  <span>{bytes(storageData.used)} used</span>
+                  <span>{bytes(storageData.limit)} max ({storageData.plan})</span>
                 </div>
               </div>
             ) : (
@@ -282,7 +276,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
               <span className="text-xs font-medium text-zinc-500">Data Storage</span>
             </div>
             <p className="text-sm font-bold text-zinc-900 mt-1">
-              {loading ? "..." : `${formatTotalSize(totalStorageBytes)} across ${uniqueDatesCount} folders`}
+              {loading ? "..." : `${bytes(totalStorageBytes)} across ${uniqueDatesCount} folders`}
             </p>
           </div>
         </section>

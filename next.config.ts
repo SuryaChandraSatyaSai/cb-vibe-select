@@ -8,6 +8,7 @@ const nextConfig: NextConfig = {
     "@vladmandic/face-api",
     "@tensorflow/tfjs",
     "@tensorflow/tfjs-backend-wasm",
+    "@huggingface/transformers", // CLIP-IQA: pulls native onnxruntime-node + sharp; keep unbundled
   ],
 };
 

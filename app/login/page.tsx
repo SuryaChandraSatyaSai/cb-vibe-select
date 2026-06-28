@@ -1,4 +1,3 @@
-import React from "react";
 import { signIn } from "@/auth";
 import { ShieldCheck, Sparkles, AlertTriangle } from "lucide-react";
 

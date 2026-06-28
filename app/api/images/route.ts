@@ -1,16 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { v2 as cloudinary } from "cloudinary";
+import cloudinary from "@/lib/cloudinary";
 import dbConnect from "@/lib/db";
 import ImageModel from "@/models/Image";
 import { auth } from "@/auth";
 import { triggerQueueProcessing } from "@/lib/queue";
-
-// Configure Cloudinary
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-});
 
 // GET /api/images - Retrieve all image records
 export async function GET(request: NextRequest) {
@@ -34,7 +27,7 @@ export async function GET(request: NextRequest) {
       const populatePeople = { path: "people.personId", select: "name title links avatarUrl" };
       const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); // escape regex metachars
 
-      // (a) relevance full-text search over indexed fields (filename / tags / objects.label)
+      // (a) relevance full-text search over indexed fields (filename / originalPath / tags)
       const textHits = await ImageModel.find(
         { $text: { $search: search } },
         { score: { $meta: "textScore" } }
@@ -63,7 +56,6 @@ export async function GET(request: NextRequest) {
             { filename: regex },
             { originalPath: regex },
             { tags: { $in: [regex] } },
-            { "objects.label": regex },
             { "people.name": regex },
           ],
         })

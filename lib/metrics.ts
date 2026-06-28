@@ -9,7 +9,7 @@
 // soft); the knobs below are the calibration handles if scores drift in practice.
 
 const ANALYZE_DIM = 256; // max edge of the analysis thumbnail
-const SHARP_VAR_FULL = 700; // Laplacian variance that maps to 100% sharpness
+const SHARP_VAR_FULL = 250; // Laplacian variance that maps to 100% sharpness (calibrated for Gaussian-smoothed variance)
 const WEIGHTS = { sharpness: 0.45, exposure: 0.35, color: 0.12, contrast: 0.08 };
 
 export interface ImageMetrics {
@@ -23,7 +23,6 @@ export interface ImageMetrics {
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
-const toHex = (v: number) => clamp(Math.round(v), 0, 255).toString(16).padStart(2, "0");
 
 
 
@@ -57,8 +56,34 @@ function parseBmp(buffer: Buffer) {
   return { width, height, lum, R, G, B, n };
 }
 
+function gaussianBlur(lum: Float64Array, width: number, height: number): Float64Array {
+  const output = new Float64Array(width * height);
+  for (let y = 1; y < height - 1; y++) {
+    for (let x = 1; x < width - 1; x++) {
+      const i = y * width + x;
+      // 3x3 Gaussian kernel convolution
+      const sum =
+        (lum[i - width - 1] + 2 * lum[i - width] + lum[i - width + 1] +
+         2 * lum[i - 1]     + 4 * lum[i]         + 2 * lum[i + 1]     +
+         lum[i + width - 1] + 2 * lum[i + width] + lum[i + width + 1]) / 16;
+      output[i] = sum;
+    }
+  }
+  // Keep borders identical
+  for (let x = 0; x < width; x++) {
+    output[x] = lum[x];
+    output[(height - 1) * width + x] = lum[(height - 1) * width + x];
+  }
+  for (let y = 0; y < height; y++) {
+    output[y * width] = lum[y * width];
+    output[y * width + width - 1] = lum[y * width + width - 1];
+  }
+  return output;
+}
+
 function computeMetricsFromPixels(px: ReturnType<typeof parseBmp>): ImageMetrics {
   const { width, height, lum, R, G, B, n } = px;
+  const smoothedLum = gaussianBlur(lum, width, height);
 
   let sumL = 0, sumL2 = 0, sumChroma = 0, crushed = 0, blown = 0;
   let sumR = 0, sumBch = 0;
@@ -90,12 +115,12 @@ function computeMetricsFromPixels(px: ReturnType<typeof parseBmp>): ImageMetrics
   const temperature: "warm" | "cool" | "neutral" =
     meanR > meanB + 10 ? "warm" : meanB > meanR + 10 ? "cool" : "neutral";
 
-  // Sharpness: variance of the 4-neighbour Laplacian on luminance (interior pixels).
+  // Sharpness: variance of the 4-neighbour Laplacian on smoothed luminance (interior pixels).
   let lapSum = 0, lapSum2 = 0, lapN = 0;
   for (let y = 1; y < height - 1; y++) {
     for (let x = 1; x < width - 1; x++) {
       const i = y * width + x;
-      const lap = 4 * lum[i] - lum[i - 1] - lum[i + 1] - lum[i - width] - lum[i + width];
+      const lap = 4 * smoothedLum[i] - smoothedLum[i - 1] - smoothedLum[i + 1] - smoothedLum[i - width] - smoothedLum[i + width];
       lapSum += lap; lapSum2 += lap * lap; lapN++;
     }
   }
@@ -114,9 +139,9 @@ function scoreQuality(m: {
   const sharpnessScore = m.sharpness / 10;
 
   let exposure = 10;
-  exposure -= Math.max(0, Math.abs(m.brightness - 55) - 15) * 0.12; // ideal ~40-70
-  exposure -= Math.min(3, (m.crushed + m.blown) * 100 * 0.15); // blown/crushed pixels
-  if (m.contrast < 20) exposure -= (20 - m.contrast) * 0.1; // flat / hazy
+  exposure -= Math.max(0, Math.abs(m.brightness - 55) - 15) * 0.25; // ideal ~40-70 (increased penalty)
+  exposure -= Math.min(4, (m.crushed + m.blown) * 100 * 0.3); // blown/crushed pixels (increased penalty)
+  if (m.contrast < 20) exposure -= (20 - m.contrast) * 0.15; // flat / hazy
   exposure = clamp(exposure, 0, 10);
 
   let color = clamp(2 + m.colorfulness * 0.08, 0, 10);
@@ -125,11 +150,17 @@ function scoreQuality(m: {
 
   const contrast = clamp(m.contrast / 8, 0, 10);
 
-  const q =
+  let q =
     sharpnessScore * WEIGHTS.sharpness +
     exposure * WEIGHTS.exposure +
     color * WEIGHTS.color +
     contrast * WEIGHTS.contrast;
+
+  // If sharpness is very poor, cap the overall score to reflect that it is blurry/out-of-focus
+  if (m.sharpness < 35) {
+    q = Math.min(q, 4.5);
+  }
+
   return clamp(Math.round(q * 10) / 10, 1, 10);
 }
 

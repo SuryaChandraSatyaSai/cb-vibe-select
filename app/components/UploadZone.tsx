@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState, useRef, DragEvent, ChangeEvent } from "react";
+import { useState, useRef, DragEvent, ChangeEvent } from "react";
+import { bytes } from "@/lib/format";
 import { UploadCloud, FileSpreadsheet, Image as ImageIcon, X, AlertTriangle, CheckCircle, RefreshCw } from "lucide-react";
 
 interface SkippedItem {
@@ -67,14 +68,6 @@ export default function UploadZone({ onUploadComplete }: UploadZoneProps) {
 
   const triggerInputClick = () => {
     inputRef.current?.click();
-  };
-
-  const formatSize = (bytes: number): string => {
-    if (bytes === 0) return "0 Bytes";
-    const k = 1024;
-    const sizes = ["Bytes", "KB", "MB", "GB"];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
   };
 
   const handleUpload = () => {
@@ -218,7 +211,7 @@ export default function UploadZone({ onUploadComplete }: UploadZoneProps) {
                       <p className="text-sm font-medium text-zinc-800 truncate max-w-lg">
                         {file.name}
                       </p>
-                      <p className="text-xs text-zinc-500">{formatSize(file.size)}</p>
+                      <p className="text-xs text-zinc-500">{bytes(file.size, 2)}</p>
                     </div>
                   </div>
                   <button
