@@ -40,10 +40,16 @@ export interface ImageRecord {
     saturation?: number;
     colorfulness?: number;
     temperature?: "warm" | "cool" | "neutral";
-    palette?: string[];
     sharpness?: number;
   };
   tags?: string[];
+  people?: Array<{
+    // personId is populated by /api/images (object) but may be a bare id string
+    personId?: { _id?: string; name?: string; title?: string; links?: { label?: string; url: string }[] } | string;
+    name: string;
+    distance: number;
+    box?: { x: number; y: number; width: number; height: number };
+  }>;
 }
 
 interface ImageGalleryProps {
@@ -850,25 +856,34 @@ export default function ImageGallery({ images, loading, onResetComplete }: Image
                     </div>
                   )}
 
-                  {/* Dominant Palette */}
-                  {activeLightboxImage.attributes?.palette && activeLightboxImage.attributes.palette.length > 0 && (
+                  {/* Recognized People */}
+                  {Array.isArray(activeLightboxImage.people) && activeLightboxImage.people.length > 0 && (
                     <div>
-                      <span className="text-[10px] uppercase font-bold text-zinc-400 block mb-2">Dominant Palette</span>
-                      <div className="flex gap-2.5">
-                        {activeLightboxImage.attributes.palette.map((color, idx) => (
-                          <div key={idx} className="flex flex-col items-center gap-1 group/color relative">
-                            <div
-                              className="w-8 h-8 rounded-full border border-zinc-200 shadow-sm transition-transform duration-200 hover:scale-110 cursor-pointer"
-                              style={{ backgroundColor: color }}
-                              title={`${color} (Click to copy)`}
-                              onClick={() => {
-                                navigator.clipboard.writeText(color);
-                                alert(`Copied hex code ${color} to clipboard!`);
-                              }}
-                            />
-                            <span className="text-[8px] font-mono text-zinc-400 uppercase font-semibold">{color}</span>
-                          </div>
-                        ))}
+                      <span className="text-[10px] uppercase font-bold text-zinc-400 block mb-2">People</span>
+                      <div className="flex flex-wrap gap-2">
+                        {activeLightboxImage.people.map((p, idx) => {
+                          const person = typeof p.personId === "object" && p.personId ? p.personId : null;
+                          const url = person?.links?.[0]?.url;
+                          // face-api distance: 0 = identical, threshold 0.55. Show as a friendly confidence %.
+                          const confidence = Math.max(0, Math.round((1 - p.distance) * 100));
+                          const label = (
+                            <>
+                              {p.name}
+                              {person?.title && <span className="text-indigo-400 font-normal"> · {person.title}</span>}
+                              <span className="ml-1.5 text-indigo-400 font-normal">{confidence}%</span>
+                            </>
+                          );
+                          const cls = "px-2.5 py-1 rounded-full bg-indigo-50 text-indigo-700 text-[11px] font-semibold";
+                          return url ? (
+                            <a key={idx} href={url} target="_blank" rel="noopener noreferrer" title={`Match distance ${p.distance}`} className={`${cls} hover:bg-indigo-100 transition-colors`}>
+                              {label}
+                            </a>
+                          ) : (
+                            <span key={idx} title={`Match distance ${p.distance}`} className={cls}>
+                              {label}
+                            </span>
+                          );
+                        })}
                       </div>
                     </div>
                   )}

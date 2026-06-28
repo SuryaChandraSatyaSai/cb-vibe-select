@@ -18,7 +18,6 @@ export interface ImageMetrics {
   saturation: number; // 0-100 mean chroma
   colorfulness: number; // 0-100 Hasler-Süsstrunk colourfulness
   temperature: "warm" | "cool" | "neutral";
-  palette: string[];
   sharpness: number; // 0-100 variance-of-Laplacian
   qualityScore: number; // 1-10 weighted objective quality
 }
@@ -26,13 +25,7 @@ export interface ImageMetrics {
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 const toHex = (v: number) => clamp(Math.round(v), 0, 255).toString(16).padStart(2, "0");
 
-function hexToRgb(hex: string) {
-  return { r: parseInt(hex.slice(1, 3), 16), g: parseInt(hex.slice(3, 5), 16), b: parseInt(hex.slice(5, 7), 16) };
-}
-function colorDistance(a: string, b: string) {
-  const x = hexToRgb(a), y = hexToRgb(b);
-  return Math.abs(x.r - y.r) + Math.abs(x.g - y.g) + Math.abs(x.b - y.b);
-}
+
 
 /** Parse a 24/32-bit BMP into a flat luminance grid + raw channel arrays. */
 function parseBmp(buffer: Buffer) {
@@ -70,8 +63,6 @@ function computeMetricsFromPixels(px: ReturnType<typeof parseBmp>): ImageMetrics
   let sumL = 0, sumL2 = 0, sumChroma = 0, crushed = 0, blown = 0;
   let sumR = 0, sumBch = 0;
   let sumRg = 0, sumYb = 0, sumRg2 = 0, sumYb2 = 0;
-  const bins: Record<string, number> = {};
-
   for (let i = 0; i < n; i++) {
     const r = R[i], g = G[i], b = B[i], L = lum[i];
     sumL += L; sumL2 += L * L;
@@ -80,8 +71,6 @@ function computeMetricsFromPixels(px: ReturnType<typeof parseBmp>): ImageMetrics
     if (L <= 5) crushed++; else if (L >= 250) blown++;
     const rg = r - g, yb = 0.5 * (r + g) - b;
     sumRg += rg; sumYb += yb; sumRg2 += rg * rg; sumYb2 += yb * yb;
-    const hex = "#" + toHex(Math.round(r / 32) * 32) + toHex(Math.round(g / 32) * 32) + toHex(Math.round(b / 32) * 32);
-    bins[hex] = (bins[hex] || 0) + 1;
   }
 
   const meanL = sumL / n;
@@ -113,17 +102,8 @@ function computeMetricsFromPixels(px: ReturnType<typeof parseBmp>): ImageMetrics
   const lapVar = lapN > 0 ? Math.max(0, lapSum2 / lapN - (lapSum / lapN) ** 2) : 0;
   const sharpness = clamp(Math.round((lapVar / SHARP_VAR_FULL) * 100), 0, 100);
 
-  // Dominant palette: most frequent colour bins, spaced to avoid near-duplicates.
-  const sorted = Object.entries(bins).sort((a, b) => b[1] - a[1]).map((e) => e[0]);
-  const palette: string[] = [];
-  for (const c of sorted) {
-    if (palette.length >= 4) break;
-    if (!palette.some((s) => colorDistance(c, s) < 65)) palette.push(c);
-  }
-  for (const c of sorted) { if (palette.length >= 4) break; if (!palette.includes(c)) palette.push(c); }
-
   const qualityScore = scoreQuality({ brightness, contrast, saturation, colorfulness, sharpness, crushed: crushed / n, blown: blown / n });
-  return { brightness, contrast, saturation, colorfulness, temperature, palette, sharpness, qualityScore };
+  return { brightness, contrast, saturation, colorfulness, temperature, sharpness, qualityScore };
 }
 
 /** Transparent 1-10 quality from the objective metrics: blur, lighting, colour. */

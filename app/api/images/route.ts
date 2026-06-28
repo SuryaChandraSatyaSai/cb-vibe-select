@@ -31,29 +31,50 @@ export async function GET(request: NextRequest) {
     let images;
     if (search) {
       console.log(`[Images API] Searching catalog for query: "${search}"`);
-      
-      // 1. First attempt full-text search using text index
-      images = await ImageModel.find(
+      const populatePeople = { path: "people.personId", select: "name title links avatarUrl" };
+      const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); // escape regex metachars
+
+      // (a) relevance full-text search over indexed fields (filename / tags / objects.label)
+      const textHits = await ImageModel.find(
         { $text: { $search: search } },
         { score: { $meta: "textScore" } }
-      ).sort({ score: { $meta: "textScore" } });
+      )
+        .sort({ score: { $meta: "textScore" } })
+        .populate(populatePeople);
 
-      // 2. If no matches from text search, fall back to regex search for partial substring matches
+      // (b) recognized-person matches. people.name isn't in the text index, and $text can't be
+      //     combined with $or, so this runs separately: match the whole phrase OR any word
+      //     (>= 3 chars) so a natural query like "hem at office" still surfaces "Hem".
+      const tokens = Array.from(new Set(search.split(/\s+/).map((t) => t.trim()).filter((t) => t.length >= 3)));
+      const nameOr = [esc(search), ...tokens.map(esc)].map((p) => ({ "people.name": new RegExp(p, "i") }));
+      const nameHits = await ImageModel.find({ $or: nameOr }).sort({ createdAt: -1 }).populate(populatePeople);
+
+      // merge: person matches first (most specific), then text hits, deduped by id
+      const byId = new Map<string, any>();
+      for (const img of [...nameHits, ...textHits]) byId.set(String(img._id), img);
+      images = Array.from(byId.values());
+
+      // (c) last-resort substring search (e.g. "IMG_12") only if nothing matched above
       if (images.length === 0) {
-        console.log(`[Images API] No text index matches. Running regex substring search fallback for: "${search}"`);
-        const regex = new RegExp(search, "i");
+        console.log(`[Images API] No text/name matches. Running regex substring fallback for: "${search}"`);
+        const regex = new RegExp(esc(search), "i");
         images = await ImageModel.find({
           $or: [
             { filename: regex },
             { originalPath: regex },
             { tags: { $in: [regex] } },
-            { "objects.label": regex }
-          ]
-        }).sort({ createdAt: -1 });
+            { "objects.label": regex },
+            { "people.name": regex },
+          ],
+        })
+          .sort({ createdAt: -1 })
+          .populate(populatePeople);
       }
     } else {
       // Return all images sorted by creation date descending
-      images = await ImageModel.find({}).sort({ createdAt: -1 });
+      images = await ImageModel.find({})
+        .sort({ createdAt: -1 })
+        .populate({ path: "people.personId", select: "name title links avatarUrl" });
     }
 
     // If any image is pending or processing, trigger the queue processing to make sure worker is active

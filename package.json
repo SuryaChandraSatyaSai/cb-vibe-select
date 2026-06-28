@@ -9,7 +9,11 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@tensorflow/tfjs": "^4.22.0",
+    "@tensorflow/tfjs-backend-wasm": "^4.22.0",
+    "@vladmandic/face-api": "^1.7.15",
     "adm-zip": "^0.5.17",
+    "canvas": "^3.2.3",
     "cloudinary": "^2.10.0",
     "lucide-react": "^1.21.0",
     "mongoose": "^9.7.2",

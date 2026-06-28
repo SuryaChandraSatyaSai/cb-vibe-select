@@ -18,7 +18,6 @@ export interface IImage extends Document {
     saturation?: number;
     colorfulness?: number;
     temperature?: "warm" | "cool" | "neutral";
-    palette?: string[];
     sharpness?: number;
   };
   tags?: string[];
@@ -33,6 +32,12 @@ export interface IImage extends Document {
       xmax: number;
       ymax: number;
     };
+  }>;
+  people?: Array<{
+    personId: mongoose.Types.ObjectId; // ref Person
+    name: string; // denormalized for display + name search
+    distance: number; // match distance (lower = closer)
+    box: { x: number; y: number; width: number; height: number };
   }>;
 }
 
@@ -55,7 +60,6 @@ const ImageSchema: Schema = new Schema(
       saturation: { type: Number },
       colorfulness: { type: Number },
       temperature: { type: String, enum: ["warm", "cool", "neutral"] },
-      palette: { type: [String] },
       sharpness: { type: Number },
     },
     tags: { type: [String] },
@@ -71,6 +75,15 @@ const ImageSchema: Schema = new Schema(
         }
       }],
       default: undefined
+    },
+    people: {
+      type: [{
+        personId: { type: Schema.Types.ObjectId, ref: "Person", required: true },
+        name: { type: String, required: true },
+        distance: { type: Number, required: true },
+        box: { x: Number, y: Number, width: Number, height: Number },
+      }],
+      default: undefined,
     },
     status: {
       type: String,
