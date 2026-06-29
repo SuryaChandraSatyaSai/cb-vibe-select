@@ -1,25 +1,58 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #18181b;
+  --background: #f7f9fa;
+  --foreground: #3e4143;
 }
 
-@theme inline {
+@theme {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-bricolage-grotesque);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-manrope), ui-sans-serif, system-ui, sans-serif;
+  --font-script: var(--font-caveat), cursive;
+  --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, Roboto Mono, Menlo, Monaco, Consolas, monospace;
   
-  /* Custom primary color config */
-  --color-primary: #3A83F6;
-  --color-primary-hover: #2563eb;
-  --color-primary-light: rgba(58, 131, 246, 0.08);
-  --color-primary-border: rgba(58, 131, 246, 0.2);
+  /* Codebasics Primary & Accents */
+  --color-primary: #3b82f6;
+  --color-primary-hover: #2767b1;
+  --color-primary-light: rgba(59, 130, 246, 0.08);
+  --color-primary-border: rgba(59, 130, 246, 0.2);
+  --color-gold: #feb602;
+
+  /* Codebasics Neutrals remapped onto Tailwind zinc scale */
+  --color-zinc-50: #f7f9fa;
+  --color-zinc-100: #e4e8eb;
+  --color-zinc-150: #eef2f5;
+  --color-zinc-200: #d1d7dc;
+  --color-zinc-250: #bac3c9;
+  --color-zinc-300: #a2aeb5;
+  --color-zinc-350: #8998a1;
+  --color-zinc-400: #6f7f89;
+  --color-zinc-500: #3e4143;
+  --color-zinc-550: #343739;
+  --color-zinc-600: #2a2c2e;
+  --color-zinc-650: #212224;
+  --color-zinc-700: #1b1c1e;
+  --color-zinc-750: #151618;
+  --color-zinc-900: #101112;
+
+  /* Semantic highlights nudged to Codebasics specifications */
+  --color-emerald-500: #3fca82;
+  --color-emerald-600: #2eb471;
+  
+  --color-amber-400: #fedc5a;
+  --color-amber-500: #e2c038;
+  --color-amber-455: #feb602; /* map missing to signature gold */
+  
+  --color-red-500: #ff4343;
+  --color-red-650: #e03030;
+  
+  --color-blue-500: #4c82f7;
+  --color-blue-755: #2767b1;
 }
 
 body {
-  background-color: #fafafa; /* zinc-50 */
-  color: #18181b;            /* zinc-900 */
-  font-family: var(--font-bricolage-grotesque), system-ui, sans-serif;
+  background-color: #f7f9fa;
+  color: #3e4143;
+  font-family: var(--font-manrope), system-ui, sans-serif;
 }

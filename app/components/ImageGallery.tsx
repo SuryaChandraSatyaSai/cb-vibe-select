@@ -67,8 +67,8 @@ function ImageCard({ img, onOpen }: { img: ImageRecord; onOpen: (img: ImageRecor
     >
       {/* Aesthetic Score Badge */}
       {status === "completed" && typeof img.qualityScore === "number" && (
-        <div className="absolute top-2 left-2 z-10 px-2 py-0.5 bg-black/65 backdrop-blur-md border border-white/10 rounded-md text-white text-[11px] font-extrabold flex items-center gap-1 shadow-sm select-none transition-all duration-300">
-          <span className="text-amber-400">★</span>
+        <div className="absolute top-3 left-3 z-10 px-2.5 py-1 bg-black/65 backdrop-blur-md rounded-lg text-white text-[11px] font-extrabold flex items-center gap-1 shadow-sm select-none transition-all duration-300">
+          <span className="text-gold">★</span>
           <span>{img.qualityScore.toFixed(1)}</span>
         </div>
       )}
@@ -165,34 +165,7 @@ export default function ImageGallery({ images, loading, onResetComplete }: Image
     naturalHeight: number;
   } | null>(null);
 
-  // Filters & Sorting state
-  const [showFilters, setShowFilters] = useState<boolean>(false);
-  const [sortBy, setSortBy] = useState<string>("date_desc");
-  const [moodFilter, setMoodFilter] = useState<string>("all");
-  const [minBrightness, setMinBrightness] = useState<number>(0);
-  const [maxBrightness, setMaxBrightness] = useState<number>(100);
-  const [minSaturation, setMinSaturation] = useState<number>(0);
-  const [maxSaturation, setMaxSaturation] = useState<number>(100);
-  const [minSharpness, setMinSharpness] = useState<number>(0);
 
-  const hasActiveFilters = 
-    moodFilter !== "all" ||
-    minBrightness > 0 ||
-    maxBrightness < 100 ||
-    minSaturation > 0 ||
-    maxSaturation < 100 ||
-    minSharpness > 0 ||
-    sortBy !== "date_desc";
-
-  const handleResetFilters = () => {
-    setSortBy("date_desc");
-    setMoodFilter("all");
-    setMinBrightness(0);
-    setMaxBrightness(100);
-    setMinSaturation(0);
-    setMaxSaturation(100);
-    setMinSharpness(0);
-  };
 
   const handleReprocessImage = async (id: string) => {
     setReprocessing(true);
@@ -233,67 +206,23 @@ export default function ImageGallery({ images, loading, onResetComplete }: Image
     setRenderedDimensions(null);
   };
 
-  // Compute filtered & sorted list of images
-  const filteredImages = images.filter((img) => {
-    // 1. Mood Filter
-    if (moodFilter !== "all" && img.attributes?.temperature !== moodFilter) {
-      return false;
-    }
-    // 2. Brightness Filter
-    const brightness = img.attributes?.brightness ?? 50;
-    if (brightness < minBrightness || brightness > maxBrightness) {
-      return false;
-    }
-    // 3. Saturation Filter
-    const saturation = img.attributes?.saturation ?? 50;
-    if (saturation < minSaturation || saturation > maxSaturation) {
-      return false;
-    }
-    // 4. Sharpness Filter
-    const sharpness = img.attributes?.sharpness ?? 80;
-    if (sharpness < minSharpness) {
-      return false;
-    }
-    return true;
-  });
-
-  const sortedImages = [...filteredImages].sort((a, b) => {
-    if (sortBy === "date_desc") {
-      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-    }
-    if (sortBy === "date_asc") {
-      return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-    }
-    if (sortBy === "aesthetics_desc") {
-      return (b.qualityScore ?? 0) - (a.qualityScore ?? 0);
-    }
-    if (sortBy === "aesthetics_asc") {
-      return (a.qualityScore ?? 0) - (b.qualityScore ?? 0);
-    }
-    return 0;
-  });
-
-  const isDateGrouped = sortBy.startsWith("date");
+  // Sort images descending by creation date
+  const sortedImages = [...images].sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  );
 
   // Group images by uploadDate
-  const groupedImages = isDateGrouped
-    ? sortedImages.reduce<Record<string, ImageRecord[]>>((acc, img) => {
-        const date = img.uploadDate || "Uncategorized";
-        if (!acc[date]) {
-          acc[date] = [];
-        }
-        acc[date].push(img);
-        return acc;
-      }, {})
-    : {};
+  const groupedImages = sortedImages.reduce<Record<string, ImageRecord[]>>((acc, img) => {
+    const date = img.uploadDate || "Uncategorized";
+    if (!acc[date]) {
+      acc[date] = [];
+    }
+    acc[date].push(img);
+    return acc;
+  }, {});
 
-  // Sort dates descending or ascending
-  const sortedDates = isDateGrouped
-    ? Object.keys(groupedImages).sort((a, b) => {
-        if (sortBy === "date_desc") return b.localeCompare(a);
-        return a.localeCompare(b);
-      })
-    : [];
+  // Sort dates descending
+  const sortedDates = Object.keys(groupedImages).sort((a, b) => b.localeCompare(a));
 
   const toggleDateCollapse = (date: string) => {
     setCollapsedDates((prev) => ({
@@ -373,30 +302,15 @@ export default function ImageGallery({ images, loading, onResetComplete }: Image
             Media Asset Library
           </h2>
           <p className="text-xs text-zinc-500 mt-0.5 font-medium">
-            Displaying {filteredImages.length} of {images.length} images.
+            Displaying {images.length} {images.length === 1 ? "image" : "images"}.
           </p>
         </div>
         
         <div className="flex gap-2">
           <button
-            onClick={() => setShowFilters(!showFilters)}
-            className={`flex items-center gap-2 px-3 py-1.5 border rounded-lg text-xs font-bold transition-all shadow-sm ${
-              showFilters || hasActiveFilters
-                ? "bg-primary/5 border-primary/30 text-primary"
-                : "bg-white border-zinc-200 text-zinc-700 hover:bg-zinc-50"
-            }`}
-          >
-            <SlidersHorizontal className="w-3.5 h-3.5" />
-            Filter & Sort
-            {hasActiveFilters && (
-              <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
-            )}
-          </button>
-
-          <button
             onClick={handleResetLibrary}
             disabled={clearing}
-            className="flex items-center gap-2 px-3 py-1.5 border border-red-200 hover:border-red-300 bg-red-50 hover:bg-red-100 disabled:bg-zinc-100 text-red-650 disabled:text-zinc-400 text-xs font-bold rounded-lg transition-colors shadow-sm"
+            className="flex items-center gap-2 px-3 py-1.5 border border-red-200 hover:border-red-350 bg-red-50 hover:bg-red-100 disabled:bg-zinc-100 text-red-650 disabled:text-zinc-400 text-xs font-bold rounded-lg transition-colors shadow-sm"
           >
             {clearing ? (
               <>
@@ -413,175 +327,17 @@ export default function ImageGallery({ images, loading, onResetComplete }: Image
         </div>
       </div>
 
-      {/* Collapsible Filters Panel */}
-      {showFilters && (
-        <div className="mb-6 p-5 border border-zinc-200 rounded-xl bg-white shadow-sm space-y-4 transition-all">
-          <div className="flex items-center justify-between border-b border-zinc-150 pb-3">
-            <span className="text-sm font-bold text-zinc-800 flex items-center gap-1.5">
-              <SlidersHorizontal className="w-4 h-4 text-primary" />
-              Gallery Refinements
-            </span>
-            {hasActiveFilters && (
-              <button
-                onClick={handleResetFilters}
-                className="flex items-center gap-1 text-[10px] font-extrabold text-zinc-500 hover:text-red-650 transition-colors uppercase tracking-wider"
-              >
-                <RotateCcw className="w-3 h-3" /> Reset Filters
-              </button>
-            )}
-          </div>
+      {/* Date-grouped Accordion list */}
+      <div className="space-y-4">
+        {sortedDates.map((date) => {
+          const dateImages = groupedImages[date];
+          const isCollapsed = !!collapsedDates[date];
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {/* 1. Sorting & Mood */}
-            <div className="space-y-4">
-              <div>
-                <label className="text-[10px] font-bold text-zinc-400 uppercase block mb-1.5">Sorting Profile</label>
-                <select
-                  value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value)}
-                  className="w-full px-3 py-2 bg-zinc-50 border border-zinc-250 hover:border-zinc-350 focus:border-primary focus:bg-white rounded-lg text-xs font-semibold text-zinc-700 focus:outline-none"
-                >
-                  <option value="date_desc">Upload Date (Newest First)</option>
-                  <option value="date_asc">Upload Date (Oldest First)</option>
-                  <option value="aesthetics_desc">Quality Score (Highest First) ★</option>
-                  <option value="aesthetics_asc">Quality Score (Lowest First)</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="text-[10px] font-bold text-zinc-400 uppercase block mb-1.5">Chromatic Mood</label>
-                <div className="flex gap-1.5">
-                  {["all", "warm", "cool", "neutral"].map((mood) => (
-                    <button
-                      key={mood}
-                      onClick={() => setMoodFilter(mood)}
-                      className={`flex-1 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider border capitalize transition-colors ${
-                        moodFilter === mood
-                          ? mood === "warm"
-                            ? "bg-orange-50 border-orange-300 text-orange-700 shadow-sm"
-                            : mood === "cool"
-                              ? "bg-blue-50 border-blue-300 text-blue-700 shadow-sm"
-                              : mood === "neutral"
-                                ? "bg-zinc-100 border-zinc-300 text-zinc-700 shadow-sm"
-                                : "bg-primary/5 border-primary/30 text-primary shadow-sm"
-                          : "bg-white border-zinc-200 text-zinc-500 hover:bg-zinc-50"
-                      }`}
-                    >
-                      {mood}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* 2. Exposure & Saturation Ranges */}
-            <div className="space-y-4">
-              <div>
-                <div className="flex justify-between text-[10px] font-bold text-zinc-400 uppercase mb-1.5">
-                  <span>Luminance Range</span>
-                  <span className="text-zinc-700 font-extrabold">{minBrightness}% - {maxBrightness}%</span>
-                </div>
-                <div className="space-y-2">
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    value={minBrightness}
-                    onChange={(e) => setMinBrightness(Number(e.target.value))}
-                    className="w-full accent-primary h-1 bg-zinc-150 rounded"
-                    title="Min brightness"
-                  />
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    value={maxBrightness}
-                    onChange={(e) => setMaxBrightness(Number(e.target.value))}
-                    className="w-full accent-primary h-1 bg-zinc-150 rounded"
-                    title="Max brightness"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <div className="flex justify-between text-[10px] font-bold text-zinc-400 uppercase mb-1.5">
-                  <span>Saturation Range</span>
-                  <span className="text-zinc-700 font-extrabold">{minSaturation}% - {maxSaturation}%</span>
-                </div>
-                <div className="space-y-2">
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    value={minSaturation}
-                    onChange={(e) => setMinSaturation(Number(e.target.value))}
-                    className="w-full accent-primary h-1 bg-zinc-150 rounded"
-                    title="Min saturation"
-                  />
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    value={maxSaturation}
-                    onChange={(e) => setMaxSaturation(Number(e.target.value))}
-                    className="w-full accent-primary h-1 bg-zinc-150 rounded"
-                    title="Max saturation"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* 3. Sharpness threshold */}
-            <div>
-              <div className="flex justify-between text-[10px] font-bold text-zinc-400 uppercase mb-1.5">
-                <span>Min Focus/Sharpness</span>
-                <span className="text-zinc-700 font-extrabold">{minSharpness}%</span>
-              </div>
-              <input
-                type="range"
-                min="0"
-                max="100"
-                value={minSharpness}
-                onChange={(e) => setMinSharpness(Number(e.target.value))}
-                className="w-full accent-primary h-1 bg-zinc-150 rounded mb-3"
-              />
-              <div className="text-[10px] text-zinc-400 leading-normal">
-                Filter soft or motion-blurred photos. Slide right to only show pin-sharp focused images.
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Grid rendering branches */}
-      {filteredImages.length === 0 ? (
-        <div className="w-full text-center py-16 border border-zinc-200 rounded-2xl bg-white shadow-sm">
-          <div className="p-4 bg-zinc-50 border border-zinc-250 w-fit mx-auto rounded-2xl mb-4 shadow-sm">
-            <SlidersHorizontal className="w-8 h-8 text-zinc-400" />
-          </div>
-          <h3 className="text-zinc-800 font-bold text-lg mb-1">No matching assets found</h3>
-          <p className="text-zinc-500 text-sm max-w-md mx-auto mb-6">
-            No assets match your current combination of sorting, chromatic mood, exposure, saturation, or focus filters.
-          </p>
-          <button
-            onClick={handleResetFilters}
-            className="px-4 py-2 bg-primary hover:bg-primary-hover text-white text-xs font-bold rounded-lg transition-colors shadow-sm"
-          >
-            Clear Filters
-          </button>
-        </div>
-      ) : isDateGrouped ? (
-        /* Date-grouped Accordion list */
-        <div className="space-y-4">
-          {sortedDates.map((date) => {
-            const dateImages = groupedImages[date];
-            const isCollapsed = !!collapsedDates[date];
-
-            return (
-              <div 
-                key={date}
-                className="border border-zinc-200 rounded-xl overflow-hidden bg-white shadow-sm transition-all duration-300"
-              >
+          return (
+            <div 
+              key={date}
+              className="border border-zinc-200 rounded-xl overflow-hidden bg-white shadow-sm transition-all duration-300"
+            >
               {/* Collapsible Header */}
               <button
                 onClick={() => toggleDateCollapse(date)}
@@ -598,15 +354,15 @@ export default function ImageGallery({ images, loading, onResetComplete }: Image
                 </div>
                 <div>
                   {isCollapsed ? (
-                    <ChevronRight className="w-4.5 h-4.5 text-zinc-500" />
+                    <ChevronRight className="w-4.5 h-4.5 text-zinc-550" />
                   ) : (
-                    <ChevronDown className="w-4.5 h-4.5 text-zinc-500" />
+                    <ChevronDown className="w-4.5 h-4.5 text-zinc-550" />
                   )}
                 </div>
               </button>
 
               {/* Collapsible Body (Grid) */}
-               {!isCollapsed && (
+              {!isCollapsed && (
                 <div className="p-5">
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
                     {dateImages.map((img) => (
@@ -619,17 +375,6 @@ export default function ImageGallery({ images, loading, onResetComplete }: Image
           );
         })}
       </div>
-    ) : (
-      /* Flat Grid for Global Aesthetics sorting */
-      <div className="p-5 border border-zinc-200 rounded-xl bg-white shadow-sm">
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-          {sortedImages.map((img) => (
-            <ImageCard key={img._id} img={img} onOpen={openLightbox} />
-          ))}
-        </div>
-      </div>
-    )
-  }
 
       {/* Lightbox Modal */}
       {activeLightboxImage && (

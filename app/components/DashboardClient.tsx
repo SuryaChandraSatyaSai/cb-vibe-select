@@ -15,7 +15,8 @@ import {
   User as UserIcon,
   Shield,
   Search,
-  X
+  X,
+  Settings
 } from "lucide-react";
 import { signOut } from "next-auth/react";
 import UploadZone from "./UploadZone";
@@ -33,6 +34,9 @@ export default function DashboardClient({ session }: DashboardClientProps) {
  
   const [searchInput, setSearchInput] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState<string>("");
+
+  const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
+  const [isProfileOpen, setIsProfileOpen] = useState<boolean>(false);
  
   const [storageData, setStorageData] = useState<{
     used: number;
@@ -137,61 +141,203 @@ export default function DashboardClient({ session }: DashboardClientProps) {
   };
 
   return (
-    <div className="min-h-screen bg-zinc-50 text-zinc-900 flex flex-col font-sans selection:bg-primary selection:text-white">
-      {/* Main Content Area */}
-      <main className="flex-1 w-full max-w-5xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
-        
-        {/* Header / Brand Title & Profile */}
-        <header className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 border-b border-zinc-200 pb-6 mb-8">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="px-2.5 py-1 bg-primary/10 border border-primary/20 rounded-full text-primary text-xs font-semibold uppercase tracking-wider flex items-center gap-1">
-                <Sparkles className="w-3 h-3" /> Stage 2
-              </span>
-              <span className="text-zinc-500 text-xs">• Ingestion & Queue Active</span>
-            </div>
-            <h1 className="text-3xl font-extrabold tracking-tight mt-2 text-zinc-900">
-              VibeSelect Curation
-            </h1>
-            <p className="text-zinc-500 text-sm mt-1 max-w-xl">
-              Upload raw images or ZIP folders, catalog assets date-wise, and process quality assessment in the background.
-            </p>
+    <div className="min-h-screen bg-zinc-50 text-zinc-550 flex flex-col font-sans selection:bg-primary selection:text-white">
+      
+      {/* Top Navbar */}
+      <nav className="w-full bg-white border-b border-zinc-200 sticky top-0 z-40 shadow-sm">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+          {/* Left Side: Logo & Project Name */}
+          <div className="flex items-center gap-3">
+            <a href="https://codebasics.io" target="_blank" rel="noopener noreferrer" className="flex items-center">
+              <img 
+                src="https://files.codebasics.io/v3/images/logo.svg" 
+                className="h-7 w-auto" 
+                alt="Codebasics Logo" 
+              />
+            </a>
+            <div className="h-5 w-[1px] bg-zinc-200" />
+            <span className="text-base font-extrabold text-zinc-900 tracking-tight font-sans">
+              VibeSelect
+            </span>
           </div>
 
-          {/* Profile Section */}
-          <div className="w-full md:w-auto bg-white border border-zinc-200 rounded-xl p-3.5 flex items-center justify-between md:justify-start gap-4 shadow-sm">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-zinc-100 border border-zinc-200 rounded-full flex items-center justify-center text-zinc-600 relative">
-                <UserIcon className="w-5 h-5" />
-                <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 border-2 border-white rounded-full" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-sm font-semibold text-zinc-900 truncate max-w-[150px]">
+          {/* Right Side: Settings & Profile Dropdowns */}
+          <div className="flex items-center gap-3">
+            
+            {/* Settings Dropdown */}
+            <div className="relative">
+              <button
+                onClick={() => {
+                  setIsSettingsOpen(!isSettingsOpen);
+                  setIsProfileOpen(false);
+                }}
+                className={`p-2 rounded-lg border text-zinc-500 hover:text-zinc-900 hover:bg-zinc-50 transition-all ${
+                  isSettingsOpen 
+                    ? "bg-zinc-100 border-zinc-300 text-zinc-900 shadow-inner" 
+                    : "bg-white border-zinc-200"
+                }`}
+                title="System Settings & Storage"
+              >
+                <Settings className={`w-5 h-5 ${isSettingsOpen ? "rotate-45" : ""} transition-transform duration-200`} />
+              </button>
+
+              {isSettingsOpen && (
+                <div className="absolute right-0 mt-2 w-80 bg-white border border-zinc-200 rounded-xl p-5 shadow-lg z-50 flex flex-col gap-4 text-xs">
+                  <div>
+                    <h3 className="font-extrabold text-zinc-900 text-sm mb-1">System & Metrics</h3>
+                    <p className="text-zinc-400 text-[10px]">Cloudinary storage and database status</p>
+                  </div>
+                  
+                  <div className="h-[1px] bg-zinc-150" />
+
+                  {/* Cloudinary Storage Details */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between font-bold text-zinc-700">
+                      <span className="flex items-center gap-1">
+                        <Cloudy className="w-3.5 h-3.5 text-primary" /> Cloud Storage
+                      </span>
+                      {storageLoading ? (
+                        <span className="text-zinc-400 font-normal">Loading...</span>
+                      ) : storageData ? (
+                        <span className="text-zinc-900">{bytes(storageData.free)} Free</span>
+                      ) : (
+                        <span className="text-zinc-405">Unavailable</span>
+                      )}
+                    </div>
+
+                    {!storageLoading && storageData && (
+                      <div>
+                        <div className="w-full bg-zinc-100 rounded-full h-2 overflow-hidden border border-zinc-200">
+                          <div 
+                            className="bg-primary h-full rounded-full transition-all duration-500" 
+                            style={{ width: `${Math.max(1, Math.min(100, storageData.usedPercent))}%` }}
+                          />
+                        </div>
+                        <div className="flex justify-between items-center text-[9px] text-zinc-400 mt-1">
+                          <span>{bytes(storageData.used)} used</span>
+                          <span>{bytes(storageData.limit)} max ({storageData.plan})</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="h-[1px] bg-zinc-150" />
+
+                  {/* General Stats */}
+                  <div className="grid grid-cols-2 gap-3 text-left">
+                    <div className="bg-zinc-50 border border-zinc-150 rounded-lg p-2.5">
+                      <span className="text-[10px] text-zinc-400 font-bold uppercase block mb-1">Total Images</span>
+                      <span className="text-base font-extrabold text-zinc-900">{images.length} assets</span>
+                    </div>
+                    <div className="bg-zinc-50 border border-zinc-150 rounded-lg p-2.5">
+                      <span className="text-[10px] text-zinc-400 font-bold uppercase block mb-1">Data Storage</span>
+                      <span className="text-base font-extrabold text-zinc-900 truncate block" title={bytes(totalStorageBytes)}>
+                        {bytes(totalStorageBytes, 1)}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="h-[1px] bg-zinc-150" />
+
+                  {/* DB Connection Status */}
+                  <div className="flex items-center justify-between bg-zinc-50 border border-zinc-150 p-2.5 rounded-lg">
+                    <span className="flex items-center gap-1 font-bold text-zinc-700">
+                      <Database className="w-3.5 h-3.5 text-emerald-500" /> Database Status
+                    </span>
+                    <span className="inline-flex items-center gap-1 font-bold text-zinc-900">
+                      <span className={`w-2 h-2 rounded-full ${
+                        dbConnected === true 
+                          ? "bg-emerald-500 shadow-[0_0_8px_rgba(63,202,130,0.3)]" 
+                          : dbConnected === false 
+                            ? "bg-red-500" 
+                            : "bg-amber-400 animate-pulse"
+                      }`} />
+                      {dbConnected === true ? "Connected" : dbConnected === false ? "Disconnected" : "Pending"}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Profile Dropdown */}
+            <div className="relative">
+              <button
+                onClick={() => {
+                  setIsProfileOpen(!isProfileOpen);
+                  setIsSettingsOpen(false);
+                }}
+                className={`flex items-center gap-2 pl-2 pr-3 py-1.5 border rounded-lg hover:bg-zinc-50 transition-all ${
+                  isProfileOpen 
+                    ? "bg-zinc-100 border-zinc-300 shadow-inner" 
+                    : "bg-white border-zinc-200"
+                }`}
+                title="User Profile"
+              >
+                <div className="w-6 h-6 bg-zinc-100 border border-zinc-250 rounded-full flex items-center justify-center text-zinc-500 relative flex-shrink-0">
+                  <UserIcon className="w-3.5 h-3.5" />
+                  <span className="absolute bottom-0 right-0 w-1.5 h-1.5 bg-emerald-500 border border-white rounded-full" />
+                </div>
+                <span className="text-xs font-bold text-zinc-700 hidden sm:inline max-w-[100px] truncate">
                   {user?.name || "User"}
-                </p>
-                <p className="text-[11px] text-zinc-500 truncate max-w-[150px] mb-0.5">
-                  {user?.email}
-                </p>
-                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-zinc-100 border border-zinc-200 rounded text-[9px] font-bold text-zinc-600 uppercase tracking-widest">
-                  <Shield className="w-2.5 h-2.5 text-zinc-400" /> {userRole}
                 </span>
-              </div>
+              </button>
+
+              {isProfileOpen && (
+                <div className="absolute right-0 mt-2 w-64 bg-white border border-zinc-200 rounded-xl p-4 shadow-lg z-50 flex flex-col gap-3 text-xs">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 bg-zinc-100 border border-zinc-200 rounded-full flex items-center justify-center text-zinc-650">
+                      <UserIcon className="w-4 h-4" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="font-extrabold text-zinc-900 truncate">{user?.name || "User"}</p>
+                      <p className="text-[10px] text-zinc-400 truncate">{user?.email}</p>
+                    </div>
+                  </div>
+
+                  <div className="h-[1px] bg-zinc-150" />
+
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] text-zinc-400 uppercase font-bold tracking-wider">Access Role</span>
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-zinc-50 border border-zinc-200 rounded text-[9px] font-bold text-zinc-500 uppercase tracking-widest">
+                      <Shield className="w-2.5 h-2.5 text-zinc-400" /> {userRole}
+                    </span>
+                  </div>
+
+                  <div className="h-[1px] bg-zinc-150" />
+
+                  <button
+                    onClick={handleSignOut}
+                    className="w-full py-2 px-3 border border-red-200 bg-red-50 hover:bg-red-100 hover:text-red-750 text-red-650 text-center font-bold rounded-lg transition-colors flex items-center justify-center gap-1.5"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                    Sign Out
+                  </button>
+                </div>
+              )}
             </div>
 
-            <button
-              onClick={handleSignOut}
-              className="p-2 hover:bg-zinc-100 hover:text-red-600 rounded-lg text-zinc-400 transition-colors"
-              title="Sign Out"
-            >
-              <LogOut className="w-5 h-5" />
-            </button>
           </div>
-        </header>
+        </div>
+      </nav>
 
+      {/* Invisible backdrop to dismiss dropdowns */}
+      {(isSettingsOpen || isProfileOpen) && (
+        <div 
+          className="fixed inset-0 z-30 bg-transparent" 
+          onClick={() => {
+            setIsSettingsOpen(false);
+            setIsProfileOpen(false);
+          }} 
+        />
+      )}
+
+      {/* Main Content Area */}
+      <main className="flex-1 w-full max-w-5xl mx-auto px-4 py-8 sm:px-6 lg:px-8 space-y-12">
+        
         {/* Connection status and notifications */}
         {dbConnected === false && (
           <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl flex items-start gap-3">
-            <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+            <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
             <div>
               <h3 className="text-sm font-semibold text-red-800">Configuration Connection Alert</h3>
               <p className="text-xs text-red-700 mt-1">
@@ -201,99 +347,34 @@ export default function DashboardClient({ session }: DashboardClientProps) {
           </div>
         )}
 
-        {/* Quick Stats Grid */}
-        <section className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-          <div className="bg-white border border-zinc-200 rounded-xl p-4 shadow-sm">
-            <div className="flex items-center gap-2 text-zinc-500 mb-1.5">
-              <Images className="w-4 h-4 text-primary" />
-              <span className="text-xs font-medium">Total Images</span>
-            </div>
-            <p className="text-2xl font-bold text-zinc-900">
-              {loading ? "..." : images.length}
-            </p>
+        {/* Section 1: Drag & Drop Ingestion Panel */}
+        <section className="space-y-4">
+          <div className="flex items-center justify-between border-b border-zinc-200 pb-2">
+            <h2 className="text-lg font-bold text-zinc-900 tracking-tight">1. Ingestion Pipeline</h2>
+            <span className="text-xs text-zinc-400">Upload ZIP or Raw Images</span>
           </div>
-
-          <div className="bg-white border border-zinc-200 rounded-xl p-4 shadow-sm">
-            <div className="flex items-center gap-2 text-zinc-500 mb-1.5">
-              <Database className="w-4 h-4 text-emerald-500" />
-              <span className="text-xs font-medium">DB Status</span>
-            </div>
-            <p className="text-sm font-bold text-zinc-900 flex items-center gap-1.5 mt-1">
-              <span className={`w-2 h-2 rounded-full ${
-                dbConnected === true 
-                  ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.3)]" 
-                  : dbConnected === false 
-                    ? "bg-red-500" 
-                    : "bg-amber-500"
-              }`} />
-              {dbConnected === true 
-                ? "MongoDB Atlas" 
-                : dbConnected === false 
-                  ? "Disconnected" 
-                  : "Connecting..."
-              }
-            </p>
-          </div>
-
-          <div className="bg-white border border-zinc-200 rounded-xl p-4 shadow-sm">
-            <div className="flex items-center gap-2 text-zinc-500 mb-1.5">
-              <Cloudy className="w-4 h-4 text-primary" />
-              <span className="text-xs font-medium">Cloud Storage</span>
-            </div>
-            {storageLoading ? (
-              <div className="space-y-2 mt-2">
-                <div className="h-5 bg-zinc-100 rounded animate-pulse w-3/4" />
-                <div className="h-1.5 bg-zinc-100 rounded animate-pulse w-full" />
-                <div className="h-3 bg-zinc-100 rounded animate-pulse w-1/2" />
-              </div>
-            ) : storageData ? (
-              <div>
-                <p className="text-sm font-bold text-zinc-900 mt-1">
-                  {bytes(storageData.free)} Free
-                </p>
-                <div className="w-full bg-zinc-100 rounded-full h-1.5 mt-2 overflow-hidden border border-zinc-200">
-                  <div 
-                    className="bg-primary h-full rounded-full transition-all duration-500" 
-                    style={{ width: `${Math.max(1, Math.min(100, storageData.usedPercent))}%` }}
-                  />
-                </div>
-                <div className="flex justify-between items-center text-[10px] text-zinc-400 mt-1.5 font-medium">
-                  <span>{bytes(storageData.used)} used</span>
-                  <span>{bytes(storageData.limit)} max ({storageData.plan})</span>
-                </div>
-              </div>
-            ) : (
-              <p className="text-sm font-bold text-zinc-500 mt-1 flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-zinc-400" />
-                Status Unavailable
-              </p>
-            )}
-          </div>
-
-          <div className="bg-white border border-zinc-200 rounded-xl p-4 shadow-sm">
-            <div className="flex items-center gap-2 text-zinc-550 mb-1.5">
-              <Activity className="w-4 h-4 text-violet-500" />
-              <span className="text-xs font-medium text-zinc-500">Data Storage</span>
-            </div>
-            <p className="text-sm font-bold text-zinc-900 mt-1">
-              {loading ? "..." : `${bytes(totalStorageBytes)} across ${uniqueDatesCount} folders`}
-            </p>
-          </div>
+          <UploadZone onUploadComplete={() => fetchImages(searchQuery)} />
         </section>
- 
-        {/* Search Catalog Panel */}
-        <section className="mb-6">
-          <div className="relative bg-white border border-zinc-200 rounded-xl p-4 shadow-sm flex flex-col sm:flex-row gap-4 items-center">
-            <div className="relative flex-1 w-full">
+
+        {/* Section 2: Catalog Browser & Gallery */}
+        <section className="space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-zinc-200 pb-2 gap-4">
+            <div className="flex items-baseline gap-2">
+              <h2 className="text-lg font-bold text-zinc-900 tracking-tight">2. Media Asset Library</h2>
+              <span className="text-xs text-zinc-400">Explore cataloged database records</span>
+            </div>
+            
+            {/* Search Input inside Section 2 Header */}
+            <div className="relative w-full sm:w-80">
               <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-zinc-400">
-                <Search className="w-4.5 h-4.5" />
+                <Search className="w-4 h-4" />
               </span>
               <input
                 type="text"
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
-                placeholder="Search catalog by filename, paths, keywords/tags, or detected objects..."
-                className="w-full pl-9 pr-9 py-2.5 bg-zinc-50 border border-zinc-250 hover:border-zinc-350 focus:border-primary focus:bg-white text-sm text-zinc-800 placeholder-zinc-400 rounded-lg transition-all focus:outline-none focus:ring-1 focus:ring-primary/20"
+                placeholder="Search filenames, paths, tags..."
+                className="w-full pl-9 pr-9 py-2 bg-zinc-50 border border-zinc-200 hover:border-zinc-250 focus:border-primary focus:bg-white text-xs text-zinc-800 placeholder-zinc-400 rounded-lg transition-all focus:outline-none focus:ring-1 focus:ring-primary/20"
               />
               {searchInput && (
                 <button
@@ -301,37 +382,38 @@ export default function DashboardClient({ session }: DashboardClientProps) {
                   className="absolute inset-y-0 right-0 pr-3 flex items-center text-zinc-400 hover:text-zinc-650 transition-colors"
                   title="Clear search"
                 >
-                  <X className="w-4 h-4" />
+                  <X className="w-3.5 h-3.5" />
                 </button>
               )}
             </div>
-            {searchQuery && (
-              <div className="text-xs font-semibold text-zinc-500 bg-zinc-100 border border-zinc-200 px-3 py-1.5 rounded-lg select-none">
-                Found <span className="text-primary font-bold">{images.length}</span> matching {images.length === 1 ? "asset" : "assets"}
-              </div>
-            )}
           </div>
-        </section>
- 
-        {/* Upload Panel */}
-        <section className="mb-8">
-          <UploadZone onUploadComplete={() => fetchImages(searchQuery)} />
-        </section>
- 
-        {/* Image Browser Gallery */}
-        <section>
+
+          {searchQuery && (
+            <div className="text-xs font-semibold text-zinc-500 bg-zinc-50 border border-zinc-200 px-3.5 py-2.5 rounded-lg select-none flex items-center justify-between">
+              <div>
+                Found <span className="text-primary font-bold">{images.length}</span> matching {images.length === 1 ? "asset" : "assets"} for &ldquo;{searchQuery}&rdquo;
+              </div>
+              <button 
+                onClick={() => setSearchInput("")}
+                className="text-[10px] font-bold text-zinc-400 hover:text-primary uppercase tracking-wider"
+              >
+                Reset Search
+              </button>
+            </div>
+          )}
+
+          {/* Grid images section */}
           <ImageGallery 
             images={images} 
             loading={loading} 
             onResetComplete={() => fetchImages(searchQuery)} 
           />
         </section>
-
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-zinc-200 py-6 text-center text-xs text-zinc-500 bg-white">
-        <p>VibeSelect Application • Secured by Microsoft Entra ID OAuth 2.0</p>
+      <footer className="border-t border-zinc-200 py-6 text-center text-xs text-zinc-450 bg-white">
+        <p>VibeSelect Application • Secured by Microsoft Entra ID OAuth 2.0 • Codebasics Inc.</p>
       </footer>
     </div>
   );
