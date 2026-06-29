@@ -28,9 +28,9 @@ async function analyzeImage(imageDoc: any, matcher: any, idToName: Map<string, s
   //    unlike the local Laplacian heuristic. Runs in the same Node process (no extra
   //    server). On any failure fall back to the local metric score: never blocks/fabricates.
   try {
-    const q = await scoreImageQuality(imageDoc.cloudinaryUrl);
+    const q = await scoreImageQuality(imageDoc.cloudinaryUrl, metrics.sharpness);
     imageDoc.qualityScore = q.qualityScore;
-    console.log(`[Queue] CLIP-IQA score for ${imageDoc.filename}: ${q.qualityScore} (P(good)=${q.good.toFixed(3)})`);
+    console.log(`[Queue] Quality for ${imageDoc.filename}: ${q.qualityScore} (CLIP P(good)=${q.good.toFixed(3)}, sharp=${metrics.sharpness})`);
   } catch (err: any) {
     console.warn(`[Queue] CLIP-IQA unavailable, using local metric score:`, err.message || err);
     imageDoc.qualityScore = metrics.qualityScore;

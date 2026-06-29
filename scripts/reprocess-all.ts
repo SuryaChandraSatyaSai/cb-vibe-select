@@ -25,16 +25,19 @@ async function main() {
     let score: number;
     let fallback = false;
     try {
-      score = (await scoreImageQuality(img.cloudinaryUrl)).qualityScore;
-    } catch (e: any) {
+      // Metrics first (always free) so we can blend sharpness into the CLIP score, and so
+      // it's the honest fallback if CLIP fails. Matches the queue's pipeline.
+      const m = await extractImageMetrics(img.cloudinaryUrl);
       try {
-        score = (await extractImageMetrics(img.cloudinaryUrl)).qualityScore;
+        score = (await scoreImageQuality(img.cloudinaryUrl, m.sharpness)).qualityScore;
+      } catch {
+        score = m.qualityScore;
         fallback = true;
-      } catch (e2: any) {
-        failed++;
-        console.error(`FAIL ${img.filename}: ${e2.message || e2}`);
-        continue;
       }
+    } catch (e2: any) {
+      failed++;
+      console.error(`FAIL ${img.filename}: ${e2.message || e2}`);
+      continue;
     }
     await ImageModel.updateOne({ _id: img._id }, { $set: { qualityScore: score } });
     ok++;
