@@ -6,6 +6,7 @@ import UserModel from "@/models/User";
 const allowedDomain = process.env.ALLOWED_ORG_DOMAIN?.toLowerCase();
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
+  trustHost: true,
   providers: [
     MicrosoftEntraID({
       clientId: process.env.AZURE_AD_CLIENT_ID,
