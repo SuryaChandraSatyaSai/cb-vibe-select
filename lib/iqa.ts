@@ -16,7 +16,7 @@
 // path is a learned NR-IQA (MUSIQ/MANIQA) exported to ONNX behind the same
 // scoreImageQuality() — the queue contract doesn't change.
 
-import { pipeline } from "@huggingface/transformers";
+import { pipeline, type DataType } from "@huggingface/transformers";
 
 const MODEL = process.env.IQA_MODEL || "Xenova/clip-vit-base-patch16";
 
@@ -37,10 +37,12 @@ export interface IqaResult {
 const SHARP_WEIGHT = 0.5;
 
 // lazy singleton (like lib/db.ts / lib/face.ts): load the model once per process.
-// fp32 over the default quantized weights — we're optimising for accuracy, not size.
+// q8 (quantized) weights: fp32 CLIP-ViT-B/16 is ~600MB in RAM and OOM-kills a 512MB-2GB host
+// alongside tfjs/face-api/canvas. q8 is ~150MB for a small accuracy cost. Override via IQA_DTYPE
+// (set "fp32" for max accuracy only if the host has the RAM headroom).
 let pipe: Promise<any> | null = null;
 const classifier = () =>
-  (pipe ??= pipeline("zero-shot-image-classification", MODEL, { dtype: "fp32" }));
+  (pipe ??= pipeline("zero-shot-image-classification", MODEL, { dtype: (process.env.IQA_DTYPE as DataType) || "q8" }));
 
 export const to10 = (v: number) => Math.round((1 + Math.max(0, Math.min(1, v)) * 9) * 10) / 10; // 0-1 -> 1-10
 
