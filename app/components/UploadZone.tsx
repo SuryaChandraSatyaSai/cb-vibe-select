@@ -2,7 +2,20 @@
 
 import { useState, useRef, DragEvent, ChangeEvent } from "react";
 import { bytes } from "@/lib/format";
-import { UploadCloud, FileSpreadsheet, Image as ImageIcon, X, AlertTriangle, CheckCircle, RefreshCw } from "lucide-react";
+import { 
+  X, 
+  Image as ImageIcon, 
+  AlertTriangle, 
+  CheckCircle2, 
+  UploadCloud, 
+  FolderOpen, 
+  File, 
+  FileArchive, 
+  Clock, 
+  HardDrive, 
+  Zap, 
+  Loader2 
+} from "lucide-react";
 
 interface SkippedItem {
   filename: string;
@@ -11,9 +24,11 @@ interface SkippedItem {
 
 interface UploadZoneProps {
   onUploadComplete: () => void;
+  onUploadStart?: (fileCount: number, totalSize: number) => void;
+  onUploadProgress?: (progress: number) => void;
 }
 
-export default function UploadZone({ onUploadComplete }: UploadZoneProps) {
+export default function UploadZone({ onUploadComplete, onUploadStart, onUploadProgress }: UploadZoneProps) {
   const [dragActive, setDragActive] = useState<boolean>(false);
   const [files, setFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState<boolean>(false);
@@ -26,7 +41,8 @@ export default function UploadZone({ onUploadComplete }: UploadZoneProps) {
     skipped: SkippedItem[];
   } | null>(null);
 
-  const inputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
 
   const handleDrag = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -66,8 +82,14 @@ export default function UploadZone({ onUploadComplete }: UploadZoneProps) {
     setProgress(0);
   };
 
-  const triggerInputClick = () => {
-    inputRef.current?.click();
+  const triggerFileInput = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    fileInputRef.current?.click();
+  };
+
+  const triggerFolderInput = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    folderInputRef.current?.click();
   };
 
   const handleUpload = () => {
@@ -77,6 +99,11 @@ export default function UploadZone({ onUploadComplete }: UploadZoneProps) {
     setProgress(0);
     setUploadResult(null);
 
+    const totalSize = files.reduce((sum, f) => sum + f.size, 0);
+    if (onUploadStart) {
+      onUploadStart(files.length, totalSize);
+    }
+
     const formData = new FormData();
     files.forEach((file) => {
       formData.append("files", file);
@@ -85,11 +112,13 @@ export default function UploadZone({ onUploadComplete }: UploadZoneProps) {
     const xhr = new XMLHttpRequest();
     xhr.open("POST", "/api/upload", true);
 
-    // Track upload progress
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable) {
         const percentComplete = Math.round((event.loaded / event.total) * 100);
         setProgress(percentComplete);
+        if (onUploadProgress) {
+          onUploadProgress(percentComplete);
+        }
       }
     };
 
@@ -105,8 +134,8 @@ export default function UploadZone({ onUploadComplete }: UploadZoneProps) {
             totalCount: responseData.totalCount,
             skipped: responseData.skipped || [],
           });
-          setFiles([]); // Clear file queue on success/partial success
-          onUploadComplete(); // Trigger gallery refresh
+          setFiles([]);
+          onUploadComplete();
         } else {
           setUploadResult({
             status: "error",
@@ -141,12 +170,51 @@ export default function UploadZone({ onUploadComplete }: UploadZoneProps) {
     xhr.send(formData);
   };
 
+  const totalCount = files.length;
+  const totalSizeSum = files.reduce((sum, file) => sum + file.size, 0);
+  const totalSizeFormatted = totalCount > 0 ? (totalSizeSum / (1024 * 1024)).toFixed(1) + " MB" : "0 MB";
+  const estTimeFormatted = totalCount > 0 ? `${Math.ceil(totalCount * 0.6)} seconds` : "—";
+
   return (
-    <div className="w-full max-w-4xl mx-auto mb-8 bg-white border border-zinc-200 rounded-2xl p-6 shadow-sm">
-      <h2 className="text-lg font-bold text-zinc-900 mb-4 flex items-center gap-2">
-        <UploadCloud className="w-5 h-5 text-primary animate-pulse" />
-        Ingestion Pipeline
-      </h2>
+    <div className="w-full max-w-4xl mx-auto">
+      {/* Stat Cards Row */}
+      {totalCount > 0 && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-8">
+          <div className="bg-white border border-slate-200 rounded-2xl p-5 text-center shadow-sm flex flex-col items-center justify-center hover:border-slate-350 transition-colors">
+            <ImageIcon className="w-6 h-6 text-slate-400 mb-2" />
+            <div className="text-2xl font-extrabold text-[#0f172a]">{totalCount}</div>
+            <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-1">Images Loaded</div>
+          </div>
+          <div className="bg-white border border-slate-200 rounded-2xl p-5 text-center shadow-sm flex flex-col items-center justify-center hover:border-slate-350 transition-colors">
+            <HardDrive className="w-6 h-6 text-slate-400 mb-2" />
+            <div className="text-2xl font-extrabold text-[#0f172a]">{totalSizeFormatted}</div>
+            <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-1">Total Size</div>
+          </div>
+          <div className="bg-white border border-slate-200 rounded-2xl p-5 text-center shadow-sm flex flex-col items-center justify-center hover:border-slate-350 transition-colors">
+            <Clock className="w-6 h-6 text-slate-400 mb-2" />
+            <div className="text-2xl font-extrabold text-[#0f172a]">{estTimeFormatted}</div>
+            <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-1">Estimated Duration</div>
+          </div>
+        </div>
+      )}
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        accept=".zip,image/*"
+        onChange={handleFileChange}
+        style={{ display: "none" }}
+      />
+      <input
+        ref={folderInputRef}
+        type="file"
+        {...({ webkitdirectory: "", directory: "" } as any)}
+        multiple
+        accept="image/*"
+        onChange={handleFileChange}
+        style={{ display: "none" }}
+      />
 
       {/* Drag & Drop Zone */}
       {!uploading && !uploadResult && (
@@ -155,68 +223,71 @@ export default function UploadZone({ onUploadComplete }: UploadZoneProps) {
           onDragOver={handleDrag}
           onDragLeave={handleDrag}
           onDrop={handleDrop}
-          onClick={triggerInputClick}
-          className={`flex flex-col items-center justify-center border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all duration-300 ${
+          onClick={triggerFileInput}
+          className={`flex flex-col items-center justify-center border-2 border-dashed rounded-2xl p-10 text-center cursor-pointer transition-all duration-300 ${
             dragActive
-              ? "border-primary bg-primary/5 scale-[1.01]"
-              : "border-zinc-350 hover:border-zinc-400 bg-zinc-50/50 hover:bg-zinc-50"
+              ? "border-[#2563EB] bg-[#2563EB]/5 scale-[1.01] shadow-lg shadow-[#2563EB]/5"
+              : "border-slate-300 bg-slate-50/50 hover:bg-slate-50 hover:border-[#2563EB] hover:shadow-lg hover:shadow-[#2563EB]/5"
           }`}
         >
-          <input
-            ref={inputRef}
-            type="file"
-            multiple
-            accept=".zip,image/*"
-            onChange={handleFileChange}
-            className="hidden"
-          />
-          <div className="p-4 bg-white border border-zinc-250 rounded-full mb-4 shadow-sm group-hover:scale-110 transition-transform">
-            <UploadCloud className="w-8 h-8 text-zinc-500 group-hover:text-primary transition-colors" />
+          <UploadCloud className="w-12 h-12 text-[#2563EB]/80 mb-4" />
+          <h3 className="text-lg font-bold text-[#0f172a] mb-1">Drag &amp; Drop Your Image Folder Here</h3>
+          <p className="text-sm text-slate-500 mb-6">or use the actions below to select files from your computer</p>
+          
+          <div className="flex flex-col sm:flex-row gap-3 w-full max-w-xs sm:max-w-none justify-center px-4">
+            <button 
+              className="px-5 py-2.5 bg-[#2563EB] hover:bg-[#1d4ed8] text-white text-xs font-bold rounded-lg shadow-md hover:shadow-blue-500/20 transition-all cursor-pointer flex items-center justify-center gap-1.5 w-full sm:w-auto whitespace-nowrap" 
+              type="button" 
+              onClick={triggerFileInput}
+            >
+              <File className="w-3.5 h-3.5" /> Select Images
+            </button>
+            <button 
+              className="px-5 py-2.5 border border-slate-350 hover:border-[#2563EB] text-slate-700 hover:text-[#2563EB] hover:bg-[#2563EB]/5 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 w-full sm:w-auto whitespace-nowrap" 
+              type="button" 
+              onClick={triggerFolderInput}
+            >
+              <FolderOpen className="w-3.5 h-3.5" /> Select Folder
+            </button>
           </div>
-          <p className="text-zinc-800 font-medium text-lg mb-1">
-            Drag & drop files here, or <span className="text-primary underline hover:text-primary-hover">browse</span>
-          </p>
-          <p className="text-zinc-500 text-sm">
-            Supports raw images (JPEG, PNG, WEBP, GIF) and ZIP archives containing image folders.
-          </p>
         </div>
       )}
 
       {/* Queue Listing */}
       {files.length > 0 && !uploading && !uploadResult && (
-        <div className="mt-6 border border-zinc-200 rounded-xl overflow-hidden bg-zinc-50/20">
-          <div className="px-4 py-3 bg-zinc-100/50 border-b border-zinc-200 flex items-center justify-between">
-            <span className="text-sm font-semibold text-zinc-700">
-              Upload Queue ({files.length} {files.length === 1 ? "file" : "files"})
+        <div className="mt-6 border border-slate-200 rounded-2xl overflow-hidden bg-slate-50/20">
+          <div className="px-5 py-3.5 bg-slate-100 border-b border-slate-200 flex items-center justify-between">
+            <span className="text-sm font-bold text-slate-700">
+              Pending Queue ({files.length} {files.length === 1 ? "file" : "files"})
             </span>
             <button
               onClick={clearFiles}
-              className="text-xs font-semibold text-zinc-550 hover:text-red-600 flex items-center gap-1 transition-colors"
+              className="text-xs font-bold text-red-500 hover:text-red-750 transition-colors cursor-pointer flex items-center gap-1"
             >
               <X className="w-3.5 h-3.5" /> Clear All
             </button>
           </div>
-          <div className="max-h-60 overflow-y-auto divide-y divide-zinc-150">
+          <div className="max-h-52 overflow-y-auto divide-y divide-slate-150">
             {files.map((file, idx) => {
               const isZip = file.name.endsWith(".zip");
               return (
-                <div key={idx} className="px-4 py-3 flex items-center justify-between hover:bg-zinc-100/40 transition-colors">
+                <div key={idx} className="px-5 py-3 flex items-center justify-between hover:bg-slate-100/40 transition-colors">
                   <div className="flex items-center gap-3 min-w-0">
                     {isZip ? (
-                      <FileSpreadsheet className="w-5 h-5 text-amber-650 flex-shrink-0" />
+                      <FileArchive className="w-4 h-4 text-amber-500 flex-shrink-0" />
                     ) : (
-                      <ImageIcon className="w-5 h-5 text-emerald-600 flex-shrink-0" />
+                      <ImageIcon className="w-4 h-4 text-emerald-500 flex-shrink-0" />
                     )}
                     <div className="min-w-0">
-                      <p className="text-sm font-medium text-zinc-800 truncate max-w-lg">
+                      <p className="text-xs font-semibold text-slate-800 truncate max-w-[280px] sm:max-w-lg">
                         {file.name}
                       </p>
-                      <p className="text-xs text-zinc-500">{bytes(file.size, 2)}</p>
+                      <p className="text-[10px] text-slate-400">{bytes(file.size, 1)}</p>
                     </div>
                   </div>
                   <button
-                    onClick={() => removeFile(idx)}
-                    className="p-1 hover:bg-zinc-200 rounded-lg text-zinc-400 hover:text-zinc-600 transition-colors"
+                    onClick={(e) => { e.stopPropagation(); removeFile(idx); }}
+                    className="p-1 text-slate-400 hover:text-slate-650 cursor-pointer"
                   >
                     <X className="w-4 h-4" />
                   </button>
@@ -224,95 +295,97 @@ export default function UploadZone({ onUploadComplete }: UploadZoneProps) {
               );
             })}
           </div>
-          <div className="p-4 bg-zinc-100/30 border-t border-zinc-200 flex justify-end">
-            <button
-              onClick={handleUpload}
-              className="px-6 py-2.5 bg-primary hover:bg-primary-hover active:bg-blue-700 text-white text-sm font-semibold rounded-lg shadow-sm hover:shadow-primary/10 transition-all"
-            >
-              Start Uploading Ingestion
-            </button>
-          </div>
+        </div>
+      )}
+
+      {/* Start Button */}
+      {files.length > 0 && !uploading && !uploadResult && (
+        <div className="text-center mt-8">
+          <button 
+            className="px-8 py-3.5 bg-[#d4f210] hover:bg-[#c5e30e] text-[#111827] text-base font-extrabold rounded-lg shadow-lg hover:shadow-yellow-500/10 hover:-translate-y-0.5 transition-all cursor-pointer flex items-center justify-center gap-2 mx-auto"
+            onClick={handleUpload}
+          >
+            <Zap className="w-5 h-5 fill-zinc-900" /> Start Ingestion &amp; Quality Curation
+          </button>
         </div>
       )}
 
       {/* Uploading progress bar */}
-      {uploading && (
-        <div className="mt-4 p-8 flex flex-col items-center justify-center">
-          <RefreshCw className="w-8 h-8 text-primary animate-spin mb-4" />
-          <p className="text-zinc-800 font-semibold text-base mb-2">
+      {uploading && !onUploadStart && (
+        <div className="mt-8 p-8 border border-slate-200 rounded-2xl text-center bg-white shadow-sm flex flex-col items-center">
+          <Loader2 className="w-8 h-8 text-[#2563EB] animate-spin mb-4" />
+          <h3 className="text-base font-extrabold text-[#0f172a] mb-2">
             Uploading assets... {progress}%
-          </p>
-          <div className="w-full max-w-md bg-zinc-100 h-2.5 rounded-full overflow-hidden border border-zinc-200 shadow-inner">
+          </h3>
+          <div className="w-full max-w-sm bg-slate-100 h-2 rounded-full overflow-hidden border border-slate-200 mb-4">
             <div
+              className="h-full bg-[#2563EB] rounded-full transition-all duration-300"
               style={{ width: `${progress}%` }}
-              className="h-full bg-primary shadow-sm rounded-full transition-all duration-300"
             />
           </div>
-          <p className="text-zinc-500 text-xs mt-3">
-            Please wait. Extracting ZIP components and transferring images to Cloudinary...
+          <p className="text-xs text-slate-500">
+            Extracting ZIP contents and transmitting images to Cloudinary. Please keep this window open.
           </p>
         </div>
       )}
 
-      {/* Upload Result Modal / Block */}
+      {/* Upload Result Alert Block */}
       {uploadResult && (
-        <div className={`mt-4 border rounded-xl p-5 ${
-          uploadResult.status === "success"
-            ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-            : uploadResult.status === "partial_success"
-              ? "border-amber-200 bg-amber-50 text-amber-800"
-              : "border-red-200 bg-red-50 text-red-800"
-        }`}>
-          <div className="flex items-start gap-3">
+        <div
+          className="mt-8 border rounded-2xl p-6 shadow-sm"
+          style={{
+            borderColor:
+              uploadResult.status === "success"
+                ? "var(--color-accent-green)"
+                : uploadResult.status === "partial_success"
+                  ? "var(--color-accent-yellow)"
+                  : "var(--color-accent-red)",
+            backgroundColor:
+              uploadResult.status === "success"
+                ? "rgba(34, 197, 94, 0.03)"
+                : uploadResult.status === "partial_success"
+                  ? "rgba(251, 191, 36, 0.03)"
+                  : "rgba(239, 68, 68, 0.03)"
+          }}
+        >
+          <div className="flex gap-4 items-start">
             {uploadResult.status === "success" ? (
-              <CheckCircle className="w-6 h-6 text-emerald-600 mt-0.5 flex-shrink-0" />
+              <CheckCircle2 className="w-6 h-6 text-emerald-600 flex-shrink-0 mt-0.5" />
             ) : (
-              <AlertTriangle className={`w-6 h-6 mt-0.5 flex-shrink-0 ${
-                uploadResult.status === "partial_success" ? "text-amber-600" : "text-red-600"
-              }`} />
+              <AlertTriangle className={`w-6 h-6 flex-shrink-0 mt-0.5 ${uploadResult.status === "partial_success" ? "text-amber-500" : "text-red-500"}`} />
             )}
             <div className="flex-1">
-              <h3 className={`text-base font-bold ${
-                uploadResult.status === "success"
-                  ? "text-emerald-800"
-                  : uploadResult.status === "partial_success"
-                    ? "text-amber-800"
-                    : "text-red-800"
-              }`}>
+              <h3 className="text-base font-extrabold text-[#0f172a] mb-1">
                 {uploadResult.message}
               </h3>
-              <p className="text-zinc-650 text-sm mt-1">
-                Processed <strong className="text-zinc-800">{uploadResult.processedCount}</strong> out of{" "}
-                <strong className="text-zinc-800">{uploadResult.totalCount}</strong> identified image files.
+              <p className="text-sm text-slate-600 mb-4">
+                Ingested <strong>{uploadResult.processedCount}</strong> out of{" "}
+                <strong>{uploadResult.totalCount}</strong> files successfully.
               </p>
 
-              {/* Skipped files details */}
+              {/* Skipped Items list */}
               {uploadResult.skipped.length > 0 && (
                 <div className="mt-4">
-                  <span className="text-xs font-bold text-zinc-700 uppercase tracking-wider block mb-2">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-2">
                     Skipped/Failed Items ({uploadResult.skipped.length})
                   </span>
-                  <div className="bg-white border border-zinc-200 rounded-lg max-h-40 overflow-y-auto divide-y divide-zinc-100 text-xs">
+                  <div className="bg-white border border-slate-200 rounded-xl divide-y divide-slate-100 max-h-40 overflow-y-auto text-xs">
                     {uploadResult.skipped.map((skip, idx) => (
-                      <div key={idx} className="p-3 flex justify-between gap-4">
-                        <span className="font-medium text-zinc-550 truncate max-w-sm">
-                          {skip.filename}
-                        </span>
-                        <span className="text-red-650 font-bold text-right max-w-xs">
-                          {skip.reason}
-                        </span>
+                      <div key={idx} className="px-4 py-2.5 flex justify-between gap-4">
+                        <span className="font-semibold text-slate-700 truncate max-w-[200px] sm:max-w-md">{skip.filename}</span>
+                        <span className="font-bold flex-shrink-0 text-red-650">{skip.reason}</span>
                       </div>
                     ))}
                   </div>
                 </div>
               )}
 
-              <div className="mt-4 flex justify-end">
+              <div className="flex justify-end mt-5">
                 <button
                   onClick={clearFiles}
-                  className="px-4 py-2 bg-zinc-100 hover:bg-zinc-200 border border-zinc-300/60 text-zinc-700 hover:text-zinc-900 text-xs font-bold rounded-lg transition-colors"
+                  className="px-4 py-2 border border-slate-350 hover:border-slate-500 text-slate-700 text-xs font-bold rounded-lg transition-colors cursor-pointer flex items-center gap-1"
                 >
-                  Done
+                  <X className="w-3.5 h-3.5" /> Close &amp; Proceed
                 </button>
               </div>
             </div>

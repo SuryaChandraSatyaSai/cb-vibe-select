@@ -1,9 +1,10 @@
 import { auth } from "@/auth";
-import DashboardClient from "./components/DashboardClient";
+import HomePage from "./components/home/HomePage";
 
 export default async function Home() {
   const session = await auth();
   
-  return <DashboardClient session={session} />;
+  return <HomePage session={session} />;
 }
+
 export const dynamic = "force-dynamic";

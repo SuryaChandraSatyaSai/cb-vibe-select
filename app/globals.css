@@ -12,6 +12,21 @@
   --font-script: var(--font-caveat), cursive;
   --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, Roboto Mono, Menlo, Monaco, Consolas, monospace;
   
+  /* Brand Theme Colors */
+  --color-primary-blue: #2563EB;
+  --color-primary-blue-dark: #1d4ed8;
+  --color-primary-blue-light: #3b82f6;
+  --color-cta-yellow: #d4f210;
+  --color-cta-yellow-hover: #c5e30e;
+  --color-dark-navy: #1a1a2e;
+  --color-darker-navy: #0f172a;
+  --color-cyan-highlight: #5ebbff;
+  --color-accent-green: #22c55e;
+  --color-accent-red: #ef4444;
+  --color-accent-yellow: #FBBF24;
+  --color-accent-orange: #f97316;
+  --color-light-bg: #f8fafc;
+
   /* Codebasics Primary & Accents */
   --color-primary: #3b82f6;
   --color-primary-hover: #2767b1;
@@ -19,7 +34,7 @@
   --color-primary-border: rgba(59, 130, 246, 0.2);
   --color-gold: #feb602;
 
-  /* Codebasics Neutrals remapped onto Tailwind zinc scale */
+  /* Codebasics Neutrals remapped onto Zinc scale */
   --color-zinc-50: #f7f9fa;
   --color-zinc-100: #e4e8eb;
   --color-zinc-150: #eef2f5;
@@ -56,3 +71,137 @@ body {
   color: #3e4143;
   font-family: var(--font-manrope), system-ui, sans-serif;
 }
+
+/* Custom transitions and shimmers natively */
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.animate-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+
+.animate-shimmer::after {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  transform: translateX(-100%);
+  background-image: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.2) 20%,
+    rgba(255, 255, 255, 0.6) 60%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  animation: shimmer 2s infinite;
+  content: '';
+}
+
+@keyframes pulse-slow {
+  0%, 100% { opacity: 0.15; transform: scale(1); }
+  50% { opacity: 0.3; transform: scale(1.08); }
+}
+
+.animate-pulse-slow {
+  animation: pulse-slow 8s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes pulse-slow-delayed {
+  0%, 100% { opacity: 0.15; transform: scale(1.08); }
+  50% { opacity: 0.3; transform: scale(1); }
+}
+
+.animate-pulse-slow-delayed {
+  animation: pulse-slow-delayed 10s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes float-1 {
+  0%, 100% { transform: translateY(0) rotate(-6deg); }
+  50% { transform: translateY(-10px) rotate(-4deg); }
+}
+.animate-float-1 {
+  animation: float-1 6s ease-in-out infinite;
+}
+
+@keyframes float-2 {
+  0%, 100% { transform: translateY(0) rotate(3deg); }
+  50% { transform: translateY(-12px) rotate(5deg); }
+}
+.animate-float-2 {
+  animation: float-2 7s ease-in-out infinite;
+}
+
+@keyframes float-3 {
+  0%, 100% { transform: translateY(0) rotate(-2deg); }
+  50% { transform: translateY(-8px) rotate(-1deg); }
+}
+.animate-float-3 {
+  animation: float-3 5s ease-in-out infinite;
+}
+
+/* Modern Grid Background Pattern */
+.bg-grid-pattern {
+  background-size: 40px 40px;
+  background-image: 
+    linear-gradient(to right, rgba(148, 163, 184, 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(148, 163, 184, 0.05) 1px, transparent 1px);
+}
+
+.bg-grid-pattern-dark {
+  background-size: 40px 40px;
+  background-image: 
+    linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+}
+
+/* Glassmorphism Classes */
+.glass-card {
+  background: rgba(255, 255, 255, 0.45);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.glass-card-dark {
+  background: rgba(15, 23, 42, 0.6);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* Smooth Scrolling */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Thin Custom Scrollbars for All Elements */
+*::-webkit-scrollbar {
+  width: 5px !important;
+  height: 5px !important;
+}
+
+*::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.02) !important;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: rgba(37, 99, 235, 0.4) !important;
+  border-radius: 10px !important;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(37, 99, 235, 0.75) !important;
+}
+
+/* Firefox Support */
+* {
+  scrollbar-width: thin !important;
+  scrollbar-color: rgba(37, 99, 235, 0.4) rgba(0, 0, 0, 0.02) !important;
+}
+
+

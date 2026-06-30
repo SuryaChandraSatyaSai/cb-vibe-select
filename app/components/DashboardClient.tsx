@@ -2,23 +2,29 @@
 
 import { useState, useEffect } from "react";
 import { bytes } from "@/lib/format";
-import { 
-  Sparkles, 
-  Activity, 
-  Database, 
-  Cloudy, 
-  Images, 
-  BookOpen, 
-  FileText,
-  AlertCircle,
-  LogOut,
-  User as UserIcon,
-  Shield,
-  Search,
-  X,
-  Settings
-} from "lucide-react";
 import { signOut } from "next-auth/react";
+import { 
+  Search, 
+  Database, 
+  Shield, 
+  LogOut, 
+  AlertCircle, 
+  X, 
+  Loader2,
+  UploadCloud,
+  Cpu,
+  Download,
+  Scan,
+  Palette,
+  Copy,
+  Layout,
+  PanelLeft,
+  PanelLeftClose,
+  CheckCircle,
+  Clock,
+  ChevronRight,
+  Image as ImageIcon
+} from "lucide-react";
 import UploadZone from "./UploadZone";
 import ImageGallery, { ImageRecord } from "./ImageGallery";
 
@@ -32,12 +38,23 @@ export default function DashboardClient({ session }: DashboardClientProps) {
   const [dbConnected, setDbConnected] = useState<boolean | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
  
+  // Dashboard active panel view state: "overview", "gallery"
+  const [activePanel, setActivePanel] = useState<"overview" | "gallery">("overview");
+  
+  // Search state
   const [searchInput, setSearchInput] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState<string>("");
 
-  const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
+  // Dropdown & sidebar navigation toggle states
   const [isProfileOpen, setIsProfileOpen] = useState<boolean>(false);
+  const [sidebarOpen, setSidebarOpen] = useState<boolean>(true);
  
+  // Ingestion states
+  const [uploading, setUploading] = useState<boolean>(false);
+  const [uploadProgress, setUploadProgress] = useState<number>(0);
+  const [uploadStats, setUploadStats] = useState<{ fileCount: number; totalSize: number } | null>(null);
+
+  // Storage stats
   const [storageData, setStorageData] = useState<{
     used: number;
     limit: number;
@@ -49,6 +66,11 @@ export default function DashboardClient({ session }: DashboardClientProps) {
 
   const user = session?.user;
   const userRole = user?.role || "VIEWER";
+  
+  // Initials for avatar
+  const userInitials = user?.name 
+    ? user.name.split(" ").map((n: string) => n[0]).join("").slice(0, 2).toUpperCase() 
+    : "US";
 
   const fetchStorage = async () => {
     setStorageLoading(true);
@@ -77,7 +99,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
   const fetchImages = async (query?: string) => {
     setLoading(true);
     setErrorMessage(null);
-    fetchStorage(); // Refresh storage metrics concurrently
+    fetchStorage();
     try {
       const url = query ? `/api/images?search=${encodeURIComponent(query)}` : "/api/images";
       const response = await fetch(url);
@@ -98,7 +120,6 @@ export default function DashboardClient({ session }: DashboardClientProps) {
     }
   };
  
-  // Debounce search input modifications
   useEffect(() => {
     const delayDebounceFn = setTimeout(() => {
       setSearchQuery(searchInput);
@@ -107,14 +128,14 @@ export default function DashboardClient({ session }: DashboardClientProps) {
     return () => clearTimeout(delayDebounceFn);
   }, [searchInput]);
  
-  // Fetch image records when search query parameter changes
   useEffect(() => {
     fetchImages(searchQuery);
   }, [searchQuery]);
+
+  // Track if there are active processing jobs
+  const hasActiveJobs = images.some((img) => img.status === "pending" || img.status === "processing");
  
-  // Poll for status updates if there are any active queue processing jobs
   useEffect(() => {
-    const hasActiveJobs = images.some((img) => img.status === "pending" || img.status === "processing");
     if (!hasActiveJobs) return;
  
     const interval = setInterval(() => {
@@ -130,291 +151,475 @@ export default function DashboardClient({ session }: DashboardClientProps) {
     }, 3000);
  
     return () => clearInterval(interval);
-  }, [images, searchQuery]);
+  }, [hasActiveJobs, searchQuery]);
 
-  // Compute stats
-  const uniqueDatesCount = new Set(images.map((img) => img.uploadDate)).size;
   const totalStorageBytes = images.reduce((sum, img) => sum + img.fileSize, 0);
 
   const handleSignOut = () => {
     signOut({ callbackUrl: "/login" });
   };
 
-  return (
-    <div className="min-h-screen bg-zinc-50 text-zinc-550 flex flex-col font-sans selection:bg-primary selection:text-white">
-      
-      {/* Top Navbar */}
-      <nav className="w-full bg-white border-b border-zinc-200 sticky top-0 z-40 shadow-sm">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          {/* Left Side: Logo & Project Name */}
-          <div className="flex items-center gap-3">
-            <a href="https://codebasics.io" target="_blank" rel="noopener noreferrer" className="flex items-center">
-              <img 
-                src="https://files.codebasics.io/v3/images/logo.svg" 
-                className="h-7 w-auto" 
-                alt="Codebasics Logo" 
-              />
-            </a>
-            <div className="h-5 w-[1px] bg-zinc-200" />
-            <span className="text-base font-extrabold text-zinc-900 tracking-tight font-sans">
-              VibeSelect
-            </span>
-          </div>
+  const handleSearchChange = (val: string) => {
+    setSearchInput(val);
+    if (val && activePanel !== "gallery") {
+      setActivePanel("gallery");
+    }
+  };
 
-          {/* Right Side: Settings & Profile Dropdowns */}
-          <div className="flex items-center gap-3">
-            
-            {/* Settings Dropdown */}
-            <div className="relative">
-              <button
-                onClick={() => {
-                  setIsSettingsOpen(!isSettingsOpen);
-                  setIsProfileOpen(false);
-                }}
-                className={`p-2 rounded-lg border text-zinc-500 hover:text-zinc-900 hover:bg-zinc-50 transition-all ${
-                  isSettingsOpen 
-                    ? "bg-zinc-100 border-zinc-300 text-zinc-900 shadow-inner" 
-                    : "bg-white border-zinc-200"
-                }`}
-                title="System Settings & Storage"
+  const handleUploadStart = (fileCount: number, totalSize: number) => {
+    setUploading(true);
+    setUploadProgress(0);
+    setUploadStats({ fileCount, totalSize });
+  };
+
+  const handleUploadProgress = (prog: number) => {
+    setUploadProgress(prog);
+  };
+
+  const handleUploadComplete = () => {
+    setUploading(false);
+    fetchImages(searchQuery);
+    setActivePanel("gallery");
+  };
+
+  const handleNewUploadClick = () => {
+    setActivePanel("overview");
+    setSearchInput("");
+  };
+
+  const getActiveStage = () => {
+    if (uploading) return 1;
+    const hasPending = images.some((img) => img.status === "pending" || img.status === "processing");
+    if (hasPending) {
+      const total = images.length;
+      const completed = images.filter((img) => img.status === "completed" || img.status === "failed").length;
+      if (completed < total * 0.6) {
+        return 2;
+      } else {
+        return 3;
+      }
+    }
+    return 4;
+  };
+
+  const activeStage = getActiveStage();
+
+  const completedCount = images.filter((img) => img.status === "completed" || img.status === "failed").length;
+  const totalImagesCount = images.length;
+  const analysisPercent = totalImagesCount > 0 ? Math.round((completedCount / totalImagesCount) * 100) : 0;
+
+  const currentProgressPercent = uploading ? uploadProgress : analysisPercent;
+  const progressLabel = uploading 
+    ? "Ingesting files to Cloudinary repository..." 
+    : activeStage === 2 
+      ? "Running technical assessment scoring..." 
+      : activeStage === 3 
+        ? "Classifying faces & tagging objects..." 
+        : "Analysis complete!";
+        
+  const progressCountText = uploading
+    ? `${uploadStats?.fileCount ?? 0} files`
+    : `${completedCount} / ${totalImagesCount} assets`;
+
+  const liveBest = images.filter((img) => Math.round((img.qualityScore || 0) * 10) >= 65 && img.status === "completed").length;
+  const liveAcceptable = images.filter((img) => Math.round((img.qualityScore || 0) * 10) >= 50 && Math.round((img.qualityScore || 0) * 10) < 65 && img.status === "completed").length;
+  const liveRejected = images.filter((img) => Math.round((img.qualityScore || 0) * 10) < 50 && img.status === "completed").length;
+
+  const dupesList = new Set<string>();
+  const seenSizes = new Map<number, string>();
+  const seenNames = new Map<string, string>();
+  images.forEach((img) => {
+    if (img.tags?.includes("dupe")) {
+      dupesList.add(img._id);
+    } else if (seenSizes.has(img.fileSize) || seenNames.has(img.filename)) {
+      dupesList.add(img._id);
+    } else {
+      seenSizes.set(img.fileSize, img._id);
+      seenNames.set(img.filename, img._id);
+    }
+  });
+  const liveDuplicates = images.filter((img) => dupesList.has(img._id)).length;
+
+  return (
+    <div className="h-screen overflow-hidden bg-slate-50 flex flex-col font-sans selection:bg-[#2563EB] selection:text-white">
+      
+      <div className="flex-1 flex relative h-0 min-h-0 overflow-hidden">
+        
+        <aside className={`bg-[#0f172a] text-slate-300 border-r border-slate-900 flex flex-col justify-between flex-shrink-0 transition-all duration-300 z-20 h-full overflow-hidden ${
+          sidebarOpen 
+            ? "translate-x-0 absolute md:relative inset-y-0 left-0 w-full md:w-64" 
+            : "-translate-x-full absolute md:translate-x-0 md:w-0 overflow-hidden border-r-0"
+        }`}>
+          <div>
+            {/* Header / Brand Logo */}
+            <div className="h-16 px-6 border-b border-slate-900 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <a href="/" className="flex items-center">
+                  <img 
+                    src="https://files.codebasics.io/v3/images/logo.svg" 
+                    className="h-7 w-auto filter brightness-0 invert" 
+                    alt="Codebasics Logo" 
+                  />
+                </a>
+                <div className="h-4 w-[1px] bg-slate-800" />
+                <span className="text-sm font-extrabold text-white tracking-tight uppercase">
+                  VibeSelect
+                </span>
+              </div>
+              <button 
+                onClick={() => setSidebarOpen(!sidebarOpen)}
+                className="p-1.5 hover:bg-slate-800 rounded text-slate-400 hover:text-white md:hidden cursor-pointer"
+                title="Toggle Sidebar"
               >
-                <Settings className={`w-5 h-5 ${isSettingsOpen ? "rotate-45" : ""} transition-transform duration-200`} />
+                {sidebarOpen ? <PanelLeftClose className="w-5 h-5" /> : <PanelLeft className="w-5 h-5" />}
+              </button>
+            </div>
+
+            {/* Storage Quota widget in Sidebar */}
+            <div className="p-4 mx-3 my-4 bg-slate-900/60 border border-slate-800/80 rounded-2xl space-y-2.5 text-[11px]">
+              <div className="flex justify-between items-center font-bold text-slate-400">
+                <span>Cloudinary Quota</span>
+                {!storageLoading && storageData && (
+                  <span className="text-white font-extrabold">{storageData.free ? bytes(storageData.free) : "0 MB"} Free</span>
+                )}
+              </div>
+              {!storageLoading && storageData ? (
+                <div>
+                  <div className="w-full bg-slate-850 h-1.5 rounded-full overflow-hidden border border-slate-800">
+                    <div 
+                      className="bg-[#2563EB] h-full rounded-full transition-all duration-500" 
+                      style={{ width: `${Math.max(1, Math.min(100, storageData.usedPercent))}%` }}
+                    />
+                  </div>
+                  <div className="flex justify-between text-[9px] text-slate-500 font-bold mt-1.5">
+                    <span>{bytes(storageData.used)} used</span>
+                    <span>{storageData.plan}</span>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-slate-500 text-[10px] animate-pulse">Loading quota metrics...</div>
+              )}
+            </div>
+
+            {/* Navigation Lists */}
+            <div className="px-3 space-y-1">
+              <span className="px-3 text-[9px] font-extrabold text-slate-500 uppercase tracking-widest block mb-2">Workspace</span>
+              <button
+                onClick={() => { setActivePanel("overview"); setSidebarOpen(false); }}
+                className={`w-full px-3 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2.5 cursor-pointer ${
+                  activePanel === "overview" 
+                    ? "bg-[#2563EB] text-white shadow-lg shadow-blue-500/10 font-extrabold" 
+                    : "hover:bg-slate-900 text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                <Layout className="w-4 h-4" />
+                <span>Overview &amp; Upload</span>
+              </button>
+              <button
+                onClick={() => { setActivePanel("gallery"); setSidebarOpen(false); }}
+                className={`w-full px-3 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2.5 cursor-pointer ${
+                  activePanel === "gallery" 
+                    ? "bg-[#2563EB] text-white shadow-lg shadow-blue-500/10 font-extrabold" 
+                    : "hover:bg-slate-900 text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                <ImageIcon className="w-4 h-4" />
+                <span>Media Library</span>
+                {images.length > 0 && (
+                  <span className={`ml-auto px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                    activePanel === "gallery" ? "bg-white/20 text-white" : "bg-slate-800 text-slate-400"
+                  }`}>
+                    {images.length}
+                  </span>
+                )}
               </button>
 
-              {isSettingsOpen && (
-                <div className="absolute right-0 mt-2 w-80 bg-white border border-zinc-200 rounded-xl p-5 shadow-lg z-50 flex flex-col gap-4 text-xs">
+            </div>
+          </div>
+
+          {/* User Profile Block at Sidebar Bottom */}
+          <div className="p-4 border-t border-slate-900 bg-slate-900/40">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 bg-blue-500/10 border border-blue-500/20 text-[#2563EB] rounded-full flex items-center justify-center text-[10px] font-black tracking-tighter relative flex-shrink-0">
+                {userInitials}
+                <span className="absolute bottom-0 right-0 w-2 h-2 bg-[#22c55e] border border-slate-900 rounded-full" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="font-bold text-white text-xs truncate leading-none">{user?.name || "User"}</p>
+                <p className="text-[9px] text-slate-500 font-bold uppercase tracking-wider mt-1">{userRole}</p>
+              </div>
+              <button
+                onClick={handleSignOut}
+                className="p-1.5 hover:bg-slate-800 rounded text-slate-400 hover:text-red-400 cursor-pointer"
+                title="Sign Out"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </aside>
+
+        {/* MAIN WORKSPACE CANVAS AREA */}
+        <div className="flex-1 flex flex-col min-w-0 bg-slate-50">
+          
+          {/* Header Bar */}
+          <header className="h-16 border-b border-slate-200 bg-white px-6 flex items-center justify-between z-10 flex-shrink-0">
+            <div className="flex items-center gap-3">
+              <button 
+                onClick={() => setSidebarOpen(!sidebarOpen)}
+                className="p-1.5 hover:bg-slate-100 rounded text-slate-500 hover:text-slate-800 cursor-pointer transition-colors"
+                title="Toggle Sidebar"
+              >
+                {sidebarOpen ? <PanelLeftClose className="w-5 h-5" /> : <PanelLeft className="w-5 h-5" />}
+              </button>
+              <div className="flex items-center text-xs font-bold text-slate-400 uppercase tracking-widest gap-2">
+                <span>VibeSelect</span>
+                <ChevronRight className="w-3.5 h-3.5 text-slate-300" />
+                <span className="text-slate-800">{activePanel}</span>
+              </div>
+            </div>
+
+            {/* Catalog search bar inside header */}
+            {activePanel === "gallery" && (
+              <div className="flex-1 max-w-sm relative mx-6 hidden sm:block">
+                <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                  <Search className="w-4 h-4" />
+                </span>
+                <input
+                  type="text"
+                  value={searchInput}
+                  onChange={(e) => handleSearchChange(e.target.value)}
+                  placeholder="Search filename, attributes, tags..."
+                  className="w-full pl-9 pr-10 py-1.5 border border-slate-200 hover:border-slate-350 focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB]/10 rounded-md text-xs bg-slate-50 focus:bg-white outline-none transition-all"
+                />
+                {searchInput && (
+                  <button
+                    onClick={() => setSearchInput("")}
+                    className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-650 cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Database & Cloud Quota Badges */}
+            <div className="flex items-center gap-3 text-[10px] font-bold">
+              <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded border bg-white ${
+                dbConnected === true ? "border-emerald-200 text-emerald-600" : "border-red-200 text-red-600"
+              }`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${dbConnected === true ? "bg-emerald-500" : "bg-red-500"}`} />
+                DB {dbConnected === true ? "Online" : "Offline"}
+              </span>
+            </div>
+          </header>
+
+          {/* Database offline alert banners */}
+          {dbConnected === false && (
+            <div className="p-4 bg-red-50 border-b border-red-250 flex items-start gap-3">
+              <AlertCircle className="w-4.5 h-4.5 text-red-500 flex-shrink-0 mt-0.5" />
+              <div>
+                <h3 className="text-xs font-bold text-red-800">Database Connection Error</h3>
+                <p className="text-[11px] text-red-700 mt-0.5">
+                  {errorMessage || "Database catalog offline. Please verify the server configuration parameters."}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Main workspace panels */}
+          <div className="flex-1 overflow-y-auto p-6 min-h-0 bg-slate-50 bg-grid-pattern">
+            
+            {/* ACTIVE INGESTION / PROCESSING CONTAINER WIDGET */}
+            {(uploading || hasActiveJobs) && (
+              <div className="max-w-4xl mx-auto mb-8 bg-white border border-slate-200 shadow-sm rounded-xl p-6">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100 pb-5 mb-5">
                   <div>
-                    <h3 className="font-extrabold text-zinc-900 text-sm mb-1">System & Metrics</h3>
-                    <p className="text-zinc-400 text-[10px]">Cloudinary storage and database status</p>
+                    <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-wider flex items-center gap-2">
+                      <Cpu className="w-4.5 h-4.5 text-blue-600 animate-spin" /> Ingestion Pipeline
+                    </h3>
+                    <p className="text-[11px] text-slate-500 mt-1 font-semibold">Running Laplacian focus scanning and duplication filters.</p>
                   </div>
-                  
-                  <div className="h-[1px] bg-zinc-150" />
+                  <span className="px-3 py-1 bg-blue-50 border border-blue-150 text-blue-600 rounded text-[10px] font-black uppercase tracking-widest animate-pulse">
+                    Stage {activeStage} of 4
+                  </span>
+                </div>
 
-                  {/* Cloudinary Storage Details */}
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between font-bold text-zinc-700">
-                      <span className="flex items-center gap-1">
-                        <Cloudy className="w-3.5 h-3.5 text-primary" /> Cloud Storage
-                      </span>
-                      {storageLoading ? (
-                        <span className="text-zinc-400 font-normal">Loading...</span>
-                      ) : storageData ? (
-                        <span className="text-zinc-900">{bytes(storageData.free)} Free</span>
-                      ) : (
-                        <span className="text-zinc-405">Unavailable</span>
-                      )}
-                    </div>
+                {/* Progress bar info */}
+                <div className="space-y-2 mb-6">
+                  <div className="flex justify-between items-center text-[10px] uppercase font-bold tracking-wider">
+                    <span className="font-bold text-slate-500">{progressLabel}</span>
+                    <span className="font-bold text-slate-800">{progressCountText}</span>
+                  </div>
+                  <div className="w-full bg-slate-100 border border-slate-200 h-2 rounded-full overflow-hidden relative shadow-inner">
+                    <div 
+                      className="h-full bg-gradient-to-r from-blue-600 to-[#5ebbff] rounded-full transition-all duration-300 animate-shimmer" 
+                      style={{ width: `${currentProgressPercent}%` }}
+                    />
+                  </div>
+                </div>
 
-                    {!storageLoading && storageData && (
-                      <div>
-                        <div className="w-full bg-zinc-100 rounded-full h-2 overflow-hidden border border-zinc-200">
-                          <div 
-                            className="bg-primary h-full rounded-full transition-all duration-500" 
-                            style={{ width: `${Math.max(1, Math.min(100, storageData.usedPercent))}%` }}
-                          />
-                        </div>
-                        <div className="flex justify-between items-center text-[9px] text-zinc-400 mt-1">
-                          <span>{bytes(storageData.used)} used</span>
-                          <span>{bytes(storageData.limit)} max ({storageData.plan})</span>
-                        </div>
+                {/* Micro Stats */}
+                <div className="grid grid-cols-4 gap-3 text-center mb-6">
+                  <div className="bg-slate-50 border border-slate-150 rounded-xl p-3">
+                    <span className="text-[8px] text-slate-400 font-bold uppercase tracking-wider block">Best Shots</span>
+                    <span className="text-sm font-extrabold text-slate-800 mt-0.5 block">{liveBest}</span>
+                  </div>
+                  <div className="bg-slate-50 border border-slate-150 rounded-xl p-3">
+                    <span className="text-[8px] text-slate-400 font-bold uppercase tracking-wider block">Acceptable</span>
+                    <span className="text-sm font-extrabold text-slate-800 mt-0.5 block">{liveAcceptable}</span>
+                  </div>
+                  <div className="bg-slate-50 border border-slate-150 rounded-xl p-3">
+                    <span className="text-[8px] text-slate-400 font-bold uppercase tracking-wider block">Low-Score</span>
+                    <span className="text-sm font-extrabold text-slate-800 mt-0.5 block">{liveRejected}</span>
+                  </div>
+                  <div className="bg-slate-50 border border-slate-150 rounded-xl p-3">
+                    <span className="text-[8px] text-slate-400 font-bold uppercase tracking-wider block">Duplicates</span>
+                    <span className="text-sm font-extrabold text-slate-800 mt-0.5 block">{liveDuplicates}</span>
+                  </div>
+                </div>
+
+                {/* Mini Thumbnails Queue grid */}
+                <div className="grid grid-cols-6 sm:grid-cols-8 gap-2.5 max-h-44 overflow-y-auto pr-1">
+                  {images.map((img) => {
+                    const hasScore = img.status === "completed" && typeof img.qualityScore === "number";
+                    const isBest = hasScore && Math.round((img.qualityScore || 0) * 10) >= 50;
+
+                    return (
+                      <div 
+                        key={img._id} 
+                        className={`relative aspect-square rounded-xl overflow-hidden border bg-slate-50 ${
+                          img.status === "completed" 
+                            ? (isBest ? "border-emerald-500 shadow-sm" : "border-red-200 opacity-60") 
+                            : "border-slate-200"
+                        }`}
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img 
+                          src={img.cloudinaryUrl} 
+                          alt={img.filename} 
+                          className="w-full h-full object-cover"
+                        />
+                        
+                        {/* Processing overlay */}
+                        {img.status !== "completed" && img.status !== "failed" && (
+                          <div className="absolute inset-0 bg-[#2563EB]/25 flex items-center justify-center">
+                            <div className="w-3.5 h-3.5 border-2 border-t-transparent border-white rounded-full animate-spin" />
+                          </div>
+                        )}
+                        {img.status === "failed" && (
+                          <div className="absolute inset-0 bg-red-650/40 flex items-center justify-center text-white text-[8px] font-black tracking-wider uppercase">
+                            Err
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
-                  <div className="h-[1px] bg-zinc-150" />
-
-                  {/* General Stats */}
-                  <div className="grid grid-cols-2 gap-3 text-left">
-                    <div className="bg-zinc-50 border border-zinc-150 rounded-lg p-2.5">
-                      <span className="text-[10px] text-zinc-400 font-bold uppercase block mb-1">Total Images</span>
-                      <span className="text-base font-extrabold text-zinc-900">{images.length} assets</span>
+            {/* TAB VIEW 1: OVERVIEW & INGEST */}
+            {activePanel === "overview" && (
+              <div className="max-w-4xl mx-auto space-y-8">
+                
+                {/* Dashboard summary overview stats */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                  <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-sm flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center flex-shrink-0">
+                      <Layout className="w-5 h-5" />
                     </div>
-                    <div className="bg-zinc-50 border border-zinc-150 rounded-lg p-2.5">
-                      <span className="text-[10px] text-zinc-400 font-bold uppercase block mb-1">Data Storage</span>
-                      <span className="text-base font-extrabold text-zinc-900 truncate block" title={bytes(totalStorageBytes)}>
+                    <div>
+                      <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block">Total Images</span>
+                      <span className="text-base font-extrabold text-slate-900 mt-0.5 block">{images.length}</span>
+                    </div>
+                  </div>
+                  <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-sm flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center flex-shrink-0">
+                      <CheckCircle className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block">Best Shots</span>
+                      <span className="text-base font-extrabold text-slate-900 mt-0.5 block">{liveBest}</span>
+                    </div>
+                  </div>
+                  <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-sm flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-500 flex items-center justify-center flex-shrink-0">
+                      <Copy className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block">Duplicates</span>
+                      <span className="text-base font-extrabold text-slate-900 mt-0.5 block">{liveDuplicates}</span>
+                    </div>
+                  </div>
+                  <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-sm flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-slate-50 text-slate-500 flex items-center justify-center flex-shrink-0">
+                      <Database className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block">Library Size</span>
+                      <span className="text-base font-extrabold text-slate-900 mt-0.5 block truncate" title={bytes(totalStorageBytes)}>
                         {bytes(totalStorageBytes, 1)}
                       </span>
                     </div>
                   </div>
-
-                  <div className="h-[1px] bg-zinc-150" />
-
-                  {/* DB Connection Status */}
-                  <div className="flex items-center justify-between bg-zinc-50 border border-zinc-150 p-2.5 rounded-lg">
-                    <span className="flex items-center gap-1 font-bold text-zinc-700">
-                      <Database className="w-3.5 h-3.5 text-emerald-500" /> Database Status
-                    </span>
-                    <span className="inline-flex items-center gap-1 font-bold text-zinc-900">
-                      <span className={`w-2 h-2 rounded-full ${
-                        dbConnected === true 
-                          ? "bg-emerald-500 shadow-[0_0_8px_rgba(63,202,130,0.3)]" 
-                          : dbConnected === false 
-                            ? "bg-red-500" 
-                            : "bg-amber-400 animate-pulse"
-                      }`} />
-                      {dbConnected === true ? "Connected" : dbConnected === false ? "Disconnected" : "Pending"}
-                    </span>
-                  </div>
                 </div>
-              )}
-            </div>
 
-            {/* Profile Dropdown */}
-            <div className="relative">
-              <button
-                onClick={() => {
-                  setIsProfileOpen(!isProfileOpen);
-                  setIsSettingsOpen(false);
-                }}
-                className={`flex items-center gap-2 pl-2 pr-3 py-1.5 border rounded-lg hover:bg-zinc-50 transition-all ${
-                  isProfileOpen 
-                    ? "bg-zinc-100 border-zinc-300 shadow-inner" 
-                    : "bg-white border-zinc-200"
-                }`}
-                title="User Profile"
-              >
-                <div className="w-6 h-6 bg-zinc-100 border border-zinc-250 rounded-full flex items-center justify-center text-zinc-500 relative flex-shrink-0">
-                  <UserIcon className="w-3.5 h-3.5" />
-                  <span className="absolute bottom-0 right-0 w-1.5 h-1.5 bg-emerald-500 border border-white rounded-full" />
-                </div>
-                <span className="text-xs font-bold text-zinc-700 hidden sm:inline max-w-[100px] truncate">
-                  {user?.name || "User"}
-                </span>
-              </button>
-
-              {isProfileOpen && (
-                <div className="absolute right-0 mt-2 w-64 bg-white border border-zinc-200 rounded-xl p-4 shadow-lg z-50 flex flex-col gap-3 text-xs">
-                  <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 bg-zinc-100 border border-zinc-200 rounded-full flex items-center justify-center text-zinc-650">
-                      <UserIcon className="w-4 h-4" />
-                    </div>
-                    <div className="min-w-0">
-                      <p className="font-extrabold text-zinc-900 truncate">{user?.name || "User"}</p>
-                      <p className="text-[10px] text-zinc-400 truncate">{user?.email}</p>
-                    </div>
+                {/* Dropzone Upload Block */}
+                <div className="bg-white border border-slate-200/80 shadow-sm rounded-xl p-6 sm:p-8">
+                  <div className="mb-6">
+                    <h3 className="text-sm font-extrabold text-slate-950 uppercase tracking-wider">Asset Ingestion</h3>
+                    <p className="text-xs text-slate-400 mt-0.5">Drag directories, folders, or ZIP archives containing event photos.</p>
                   </div>
 
-                  <div className="h-[1px] bg-zinc-150" />
-
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] text-zinc-400 uppercase font-bold tracking-wider">Access Role</span>
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-zinc-50 border border-zinc-200 rounded text-[9px] font-bold text-zinc-500 uppercase tracking-widest">
-                      <Shield className="w-2.5 h-2.5 text-zinc-400" /> {userRole}
-                    </span>
-                  </div>
-
-                  <div className="h-[1px] bg-zinc-150" />
-
-                  <button
-                    onClick={handleSignOut}
-                    className="w-full py-2 px-3 border border-red-200 bg-red-50 hover:bg-red-100 hover:text-red-750 text-red-650 text-center font-bold rounded-lg transition-colors flex items-center justify-center gap-1.5"
-                  >
-                    <LogOut className="w-3.5 h-3.5" />
-                    Sign Out
-                  </button>
+                  <UploadZone 
+                    onUploadComplete={handleUploadComplete} 
+                    onUploadStart={handleUploadStart}
+                    onUploadProgress={handleUploadProgress}
+                  />
                 </div>
-              )}
-            </div>
 
-          </div>
-        </div>
-      </nav>
-
-      {/* Invisible backdrop to dismiss dropdowns */}
-      {(isSettingsOpen || isProfileOpen) && (
-        <div 
-          className="fixed inset-0 z-30 bg-transparent" 
-          onClick={() => {
-            setIsSettingsOpen(false);
-            setIsProfileOpen(false);
-          }} 
-        />
-      )}
-
-      {/* Main Content Area */}
-      <main className="flex-1 w-full max-w-5xl mx-auto px-4 py-8 sm:px-6 lg:px-8 space-y-12">
-        
-        {/* Connection status and notifications */}
-        {dbConnected === false && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl flex items-start gap-3">
-            <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
-            <div>
-              <h3 className="text-sm font-semibold text-red-800">Configuration Connection Alert</h3>
-              <p className="text-xs text-red-700 mt-1">
-                {errorMessage || "Database connection could not be established. Please verify your MONGODB_URI is correctly configured in your .env.local file."}
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* Section 1: Drag & Drop Ingestion Panel */}
-        <section className="space-y-4">
-          <div className="flex items-center justify-between border-b border-zinc-200 pb-2">
-            <h2 className="text-lg font-bold text-zinc-900 tracking-tight">1. Ingestion Pipeline</h2>
-            <span className="text-xs text-zinc-400">Upload ZIP or Raw Images</span>
-          </div>
-          <UploadZone onUploadComplete={() => fetchImages(searchQuery)} />
-        </section>
-
-        {/* Section 2: Catalog Browser & Gallery */}
-        <section className="space-y-6">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-zinc-200 pb-2 gap-4">
-            <div className="flex items-baseline gap-2">
-              <h2 className="text-lg font-bold text-zinc-900 tracking-tight">2. Media Asset Library</h2>
-              <span className="text-xs text-zinc-400">Explore cataloged database records</span>
-            </div>
-            
-            {/* Search Input inside Section 2 Header */}
-            <div className="relative w-full sm:w-80">
-              <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-zinc-400">
-                <Search className="w-4 h-4" />
-              </span>
-              <input
-                type="text"
-                value={searchInput}
-                onChange={(e) => setSearchInput(e.target.value)}
-                placeholder="Search filenames, paths, tags..."
-                className="w-full pl-9 pr-9 py-2 bg-zinc-50 border border-zinc-200 hover:border-zinc-250 focus:border-primary focus:bg-white text-xs text-zinc-800 placeholder-zinc-400 rounded-lg transition-all focus:outline-none focus:ring-1 focus:ring-primary/20"
-              />
-              {searchInput && (
-                <button
-                  onClick={() => setSearchInput("")}
-                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-zinc-400 hover:text-zinc-650 transition-colors"
-                  title="Clear search"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
-          </div>
-
-          {searchQuery && (
-            <div className="text-xs font-semibold text-zinc-500 bg-zinc-50 border border-zinc-200 px-3.5 py-2.5 rounded-lg select-none flex items-center justify-between">
-              <div>
-                Found <span className="text-primary font-bold">{images.length}</span> matching {images.length === 1 ? "asset" : "assets"} for &ldquo;{searchQuery}&rdquo;
               </div>
-              <button 
-                onClick={() => setSearchInput("")}
-                className="text-[10px] font-bold text-zinc-400 hover:text-primary uppercase tracking-wider"
-              >
-                Reset Search
-              </button>
-            </div>
-          )}
+            )}
 
-          {/* Grid images section */}
-          <ImageGallery 
-            images={images} 
-            loading={loading} 
-            onResetComplete={() => fetchImages(searchQuery)} 
-          />
-        </section>
-      </main>
+            {/* TAB VIEW 2: IMAGE LIBRARY / CATALOG */}
+            {activePanel === "gallery" && (
+              <div className="max-w-5xl mx-auto">
+                {images.length === 0 ? (
+                  <div className="bg-white border border-slate-200 rounded-xl p-16 text-center shadow-sm max-w-xl mx-auto flex flex-col items-center">
+                    <UploadCloud className="w-12 h-12 text-slate-300 mb-4" />
+                    <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider">Empty Library Catalog</h3>
+                    <p className="text-xs text-slate-500 mt-2 max-w-xs leading-relaxed font-semibold">
+                      You have not uploaded any images to this event workspace yet. Go to the Overview tab to ingest photos.
+                    </p>
+                    <button
+                      onClick={() => setActivePanel("overview")}
+                      className="mt-6 px-6 py-2.5 bg-[#2563EB] hover:bg-[#1d4ed8] text-white text-xs font-bold rounded-lg transition-colors cursor-pointer"
+                    >
+                      Inbound Upload
+                    </button>
+                  </div>
+                ) : (
+                  <ImageGallery 
+                    images={images} 
+                    loading={loading} 
+                    onResetComplete={() => fetchImages(searchQuery)}
+                    onNewUploadClick={handleNewUploadClick}
+                  />
+                )}
+              </div>
+            )}
 
-      {/* Footer */}
-      <footer className="border-t border-zinc-200 py-6 text-center text-xs text-zinc-450 bg-white">
-        <p>VibeSelect Application • Secured by Microsoft Entra ID OAuth 2.0 • Codebasics Inc.</p>
-      </footer>
+
+
+          </div>
+
+
+
+        </div>
+
+      </div>
+
     </div>
   );
 }
