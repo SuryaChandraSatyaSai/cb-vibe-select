@@ -78,10 +78,13 @@ export async function triggerQueueProcessing() {
     try {
       await dbConnect();
 
-      // Clean up/reset stuck jobs from previous aborted server runs (updated older than 5 mins)
+      // Reclaim stuck "processing" jobs from a previous aborted run: updated >5 min ago, OR with
+      // no updatedAt at all (legacy docs predating the schema's timestamps — they never match the
+      // $lt filter, so the worker would spin on them forever). Single worker process, so any
+      // "processing" doc this run didn't start is by definition orphaned.
       const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
       const stuckJobs = await ImageModel.updateMany(
-        { status: "processing", updatedAt: { $lt: fiveMinutesAgo } },
+        { status: "processing", $or: [{ updatedAt: { $lt: fiveMinutesAgo } }, { updatedAt: { $exists: false } }] },
         { $set: { status: "pending", analysisError: "Reset stuck processing job due to server timeout/restart." } }
       );
       if (stuckJobs.modifiedCount > 0) {
