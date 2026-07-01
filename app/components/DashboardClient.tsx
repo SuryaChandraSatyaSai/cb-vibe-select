@@ -23,7 +23,8 @@ import {
   CheckCircle,
   Clock,
   ChevronRight,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Pin
 } from "lucide-react";
 import UploadZone from "./UploadZone";
 import ImageGallery, { ImageRecord } from "./ImageGallery";
@@ -48,6 +49,23 @@ export default function DashboardClient({ session }: DashboardClientProps) {
   // Dropdown & sidebar navigation toggle states
   const [isProfileOpen, setIsProfileOpen] = useState<boolean>(false);
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(true);
+  const [sidebarDocked, setSidebarDocked] = useState<boolean>(true);
+
+  useEffect(() => {
+    const saved = localStorage.getItem("sidebarDocked");
+    if (saved !== null) {
+      const isDocked = JSON.parse(saved);
+      setSidebarDocked(isDocked);
+      // Ensure sidebar is open on mount if docked and on desktop
+      if (isDocked && window.innerWidth >= 768) {
+        setSidebarOpen(true);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem("sidebarDocked", JSON.stringify(sidebarDocked));
+  }, [sidebarDocked]);
  
   // Ingestion states
   const [uploading, setUploading] = useState<boolean>(false);
@@ -266,12 +284,27 @@ export default function DashboardClient({ session }: DashboardClientProps) {
                   VibeSelect
                 </span>
               </div>
+              
+              {/* Mobile Sidebar Toggle */}
               <button 
                 onClick={() => setSidebarOpen(!sidebarOpen)}
                 className="p-1.5 hover:bg-slate-800 rounded text-slate-400 hover:text-white md:hidden cursor-pointer"
                 title="Toggle Sidebar"
               >
                 {sidebarOpen ? <PanelLeftClose className="w-5 h-5" /> : <PanelLeft className="w-5 h-5" />}
+              </button>
+
+              {/* Desktop Dock Toggle Button */}
+              <button 
+                onClick={() => setSidebarDocked(!sidebarDocked)}
+                className={`p-1.5 rounded transition-all hidden md:flex cursor-pointer ${
+                  sidebarDocked 
+                    ? "text-blue-400 bg-blue-950/40 border border-blue-900/50" 
+                    : "text-slate-400 hover:text-white hover:bg-slate-800 border border-transparent"
+                }`}
+                title={sidebarDocked ? "Unpin Sidebar (Floating Mode)" : "Pin Sidebar (Always Visible)"}
+              >
+                <Pin className={`w-4 h-4 transition-transform ${sidebarDocked ? "rotate-45" : ""}`} />
               </button>
             </div>
 
@@ -305,7 +338,12 @@ export default function DashboardClient({ session }: DashboardClientProps) {
             <div className="px-3 space-y-1">
               <span className="px-3 text-[9px] font-extrabold text-slate-500 uppercase tracking-widest block mb-2">Workspace</span>
               <button
-                onClick={() => { setActivePanel("overview"); setSidebarOpen(false); }}
+                onClick={() => { 
+                  setActivePanel("overview"); 
+                  if (!sidebarDocked || window.innerWidth < 768) {
+                    setSidebarOpen(false); 
+                  }
+                }}
                 className={`w-full px-3 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2.5 cursor-pointer ${
                   activePanel === "overview" 
                     ? "bg-[#2563EB] text-white shadow-lg shadow-blue-500/10 font-extrabold" 
@@ -316,7 +354,12 @@ export default function DashboardClient({ session }: DashboardClientProps) {
                 <span>Overview &amp; Upload</span>
               </button>
               <button
-                onClick={() => { setActivePanel("gallery"); setSidebarOpen(false); }}
+                onClick={() => { 
+                  setActivePanel("gallery"); 
+                  if (!sidebarDocked || window.innerWidth < 768) {
+                    setSidebarOpen(false); 
+                  }
+                }}
                 className={`w-full px-3 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2.5 cursor-pointer ${
                   activePanel === "gallery" 
                     ? "bg-[#2563EB] text-white shadow-lg shadow-blue-500/10 font-extrabold" 
